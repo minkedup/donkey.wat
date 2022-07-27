@@ -74,14 +74,14 @@
 (global $SPEED_MULT   (mut f32) (f32.const 0.25))
 
 ;; donkey allocation
-(global $MAX_DONKEYS      i32 (i32.const 8))
-(global $NUM_DONKEYS      (mut i32) (i32.const 0))
-(global $DEALLOC_DONKEY   (mut i32) (i32.const 0))
+(global $MAX_DONKEYS    i32 (i32.const 8))
+(global $NUM_DONKEYS    (mut i32) (i32.const 0))
+(global $LDONKEY_LOC    (mut i32) (i32.const 0))
 
 ;; road drawing
 (global $ROAD_OFFSET    (mut i32) (i32.const 0))
 
-;; rng 
+;; rng
 (global $RSEED    (mut i32) (i32.const 22345512))
 (global $A-RAND   i32 (i32.const 0x43FD43FD))
 (global $C-RAND   i32 (i32.const 0xC39EC3))
@@ -113,12 +113,8 @@
   "\ff\ff\ff\ff\0f\fc\ff\ff\ff\ff\03\00\ff\ff\ff\ff\c0\03\ff\ff\ff\ff\c0\01\ff\00\00\00\0a\28\fc\00\00\00\00\00\fc\00\00\00\00\00\f0\00\00\00\00\03\f0\00\00\00\03\03\c3\00\00\00\03\c0\1f\00\00\00\0f\f0\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff"
 )
 
-;; TODO: Remove
-(data
-  (i32.const 0x2100)
-  " \00"
-)
-
+;; TODO: Remove this debug printing code
+(data (i32.const 0x2100) "\00\00")
 (func $pv (param $val i32)
   (local $trans i32)
 
@@ -135,7 +131,7 @@
 (func (export "update")
   (global.set $FCOUNT (i32.add (global.get $FCOUNT) (i32.const 1)))
 
-  ;; gated update logic 
+  ;; run update logic every 15 frames
   (if (i32.eqz (i32.rem_u (global.get $FCOUNT) (i32.const 15)))
     (then
       (call $upd-player)
@@ -157,16 +153,16 @@
   (local.set $rspace (i32.const -40))
 
   ;; draw static intructions and scoreboard headers
-  (call $text (i32.const 0x19b0) (i32.const 111) (i32.const 120))
-  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 015))
-  (call $text (i32.const 0x19a9) (i32.const 111) (i32.const 015))
+  (call $text (i32.const 0x19b0) (i32.const 111) (i32.const 120)) ;; instruct.
+  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 018)) ;; donkeys
+  (call $text (i32.const 0x19a9) (i32.const 111) (i32.const 018)) ;; drivers
 
   ;; draw road in the center
   (call $rect (i32.const 50) (i32.const 0) (i32.const 60) (i32.const 160))
 
   ;; swapon new DRAW_COLORS value
   (call $draw-swap (i32.const 0x2))
-  
+
   (loop $stripes
     ;; rect(x: 79, y: (rspace + 2) + offset, w: 6, h: 16)
     (call $rect (i32.const 79)
@@ -185,11 +181,11 @@
     br_if $stripes
   )
 
-  ;; reset DRAW_COLORS 
+  ;; reset DRAW_COLORS
   (call $draw-reset)
 )
 
-(func $draw-donkey      
+(func $draw-donkey
   (local $index  i32)
   (local $mpoint i32)
   (local $dx     i32) ;; donkey x-coord (found)
@@ -208,7 +204,7 @@
       (local.set $dy (i32.load8_u (local.get $mpoint)))
       (local.set $dr (i32.load8_u (i32.add (local.get $mpoint) (i32.const 1))))
 
-      (i32.or (i32.eqz (local.get $dr)) (i32.eqz (local.get $dy)))
+      (i32.and (i32.eqz (local.get $dr)) (i32.eqz (local.get $dy)))
       br_if $cont
 
       (i32.eq (local.get $dr) (i32.const 1))
@@ -219,7 +215,7 @@
       end
 
       (call $blit (i32.const 0x2000)
-            (local.get $dx) 
+            (local.get $dx)
             (local.get $dy)
             (i32.const 24)
             (i32.const 20)
@@ -230,7 +226,7 @@
     (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
     br_if $draw
   )
-  
+
   ;; reset DRAW_COLORS to defaults
   (call $draw-reset)
 )
@@ -240,22 +236,27 @@
   (local $index  i32)
   (local $mpoint i32)
   (local $dony   i32)
+  (local $donr   i32)
 
-  (call $alloc-donkey (call $ran-int (i32.const 0) (i32.const 2)))
+  (call $alloc-donkey (call $ran-int (i32.const 1) (i32.const 2)))
 
   (local.set $index (i32.const 0))
-  
+
   (loop $upd
     (block $cont
       (local.set $mpoint (i32.add
                           (i32.mul (local.get $index) (i32.const 2))
                           (global.get $DONKEY_DATA)))
 
-      (local.tee $dony (i32.load8_u (local.get $mpoint)))
-      i32.eqz
+      (local.set $dony (i32.load8_u (local.get $mpoint)))
+      (local.set $donr (i32.load8_u (i32.add
+                                      (local.get $mpoint)
+                                      (i32.const 1))))
+
+      (i32.and (i32.eqz (local.get $donr)) (i32.eqz (local.get $donr)))
       br_if $cont
 
-      (i32.ge_u (local.get $dony) (i32.const 120))
+      (i32.ge_u (local.get $dony) (i32.const 130))
       if
         ;; zero out donkey memory
         (i32.store16 (local.get $mpoint) (i32.const 0x0000))
@@ -263,15 +264,13 @@
         (global.set $NUM_DONKEYS (i32.sub
                                    (global.get $NUM_DONKEYS)
                                    (i32.const 1)))
-        ;; set the latest deallocated donkey
-        (global.set $DEALLOC_DONKEY (local.get $index))
-        ;; skip updating 
+        ;; skip updating
         br $cont
       end
 
       global.get $SPEED_MULT
-      f32.const 4.0  ;; Donkey base speed multiplier
-      f32.mul
+      f32.const 0.0525  ;; Donkey base speed multiplier
+      f32.div
       i32.trunc_f32_u
       local.get $dony
       i32.add
@@ -280,7 +279,7 @@
       (local.set $dony (i32.add (local.get $dony) (i32.const 10)))
       (i32.store8 (local.get $mpoint) (local.get $dony))
     )
-    
+
     (local.set $index (i32.add (local.get $index) (i32.const 1)))
     (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
     br_if $upd
@@ -292,6 +291,27 @@
   (local $addr  i32)
   (local $mmem  i32) ;; max memory
 
+  ;; delta = ( SPEED_MULT * 4.00 )
+  global.get $SPEED_MULT
+  f32.const 4.0
+  f32.mul
+  i32.trunc_f32_u
+
+  ;; LDONKEY_LOC += delta
+  global.get $LDONKEY_LOC
+  i32.add
+  global.set $LDONKEY_LOC
+
+  ;; if( LDONKEY_LOC < 4 ) : return
+  ;; else : LDONKEY_LOC = 0
+  (i32.le_u (global.get $LDONKEY_LOC) (i32.const 4))
+  if
+    return
+  else
+    i32.const 0
+    global.set $LDONKEY_LOC
+  end
+
   ;; initial search address is first address
   (local.set $addr (global.get $DONKEY_DATA))
 
@@ -301,29 +321,30 @@
                      (global.get $DONKEY_DATA)))
 
   (block $alloc
-    ;; num_donkeys >= max_donkeys
+    ;; if( num_donkeys >= max_donkeys ) : return; no space available
     (i32.ge_u (global.get $NUM_DONKEYS) (global.get $MAX_DONKEYS))
     br_if $alloc
 
     (block $break
       (loop $faddr
-        ;; test mem location under DEALLOC_DONKEY
+        ;; alloc at first zeroed y address
         (i32.eqz (i32.load8_u (local.get $addr)))
         br_if $break
 
+        ;; while( addr < max-mem ) : addr += 2
         (local.set $addr (i32.add (local.get $addr) (i32.const 2)))
         (i32.lt_u (local.get $addr) (local.get $mmem))
         br_if $faddr
       )
     )
 
-    ;; create allocation
-    (i32.store8 (local.get $addr) (i32.const 0x01))
+    ;; create allocation with default values
+    (i32.store8 (local.get $addr) (i32.const 0x00)) ;; start at top of screen
     (i32.store8 (i32.add (local.get $addr) (i32.const 1)) (local.get $road))
 
     ;; NUM_DONKEYS++
     (global.set $NUM_DONKEYS (i32.add
-                               (global.get $NUM_DONKEYS) 
+                               (global.get $NUM_DONKEYS)
                                (i32.const 1)))
   )
 )
@@ -338,12 +359,13 @@
     i32.const 0
     global.set $ROAD_OFFSET
   else
-    ;; dv of road calc
+    ;; s[0] = road_delta_v
     global.get $SPEED_MULT
-    f32.const 20.0  ;; Road speed multiplier 
+    f32.const 20.0  ;; Road speed multiplier
     f32.mul
     i32.trunc_f32_u
 
+    ;; ROAD_OFFSET = dv + ROAD_OFFSET
     global.get $ROAD_OFFSET
     i32.add
     global.set $ROAD_OFFSET
@@ -361,7 +383,7 @@
   (i32.store16 (global.get $DRAW_COLORS) (global.get $DRAW_COLORS_CACHE))
 )
 
-;; lgc rng 
+;; lgc rng
 (func $ran (result i32)
   ;; a * seed
   global.get $RSEED
@@ -388,36 +410,29 @@
    so we call the function three times, packing the random bits
    into a single number to be used for the rest of the function.
   ;)
-  ;; s[0] = ran() 
+  ;; s[0] = ran()
   call $ran
   i32.const 0x3FFF0000
   i32.and
-
   ;; s[0] << 2
   i32.const 2
   i32.shl
-
   ;; s[1] = ran()
   call $ran
   i32.const 0x3FFF0000
   i32.and
-
   ;; s[1] >> 12
   i32.const 12
   i32.shr_u
-
   ;; s[0] = s[1] or s[0]
   i32.or
-
   ;; s[1] = ran()
   call $ran
   i32.const 0x3FFF0000
   i32.and
-
   ;; s[1] >> 26
   i32.const 20
   i32.shr_u
-
   ;; s[0] = s[1] or s[0]
   i32.or
 
