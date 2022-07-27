@@ -72,18 +72,21 @@
 ;;==================;;
 (global $FCOUNT       (mut i32) (i32.const 0))
 (global $SPEED_MULT   (mut f32) (f32.const 0.25))
-(global $RSEED        (mut i32) (i32.const 22345512))
 
-(global $MAX_DONKEYS  i32 (i32.const 8))
-(global $NUM_DONKEYS  (mut i32) (i32.const 0))
-(global $DEALLOC_DONKEY    (mut i32) (i32.const 0))
+;; donkey allocation
+(global $MAX_DONKEYS      i32 (i32.const 8))
+(global $NUM_DONKEYS      (mut i32) (i32.const 0))
+(global $DEALLOC_DONKEY   (mut i32) (i32.const 0))
 
-;; rng constants
-(global $A-RAND i32 (i32.const 0x43FD43FD))
-(global $C-RAND i32 (i32.const 0xC39EC3))
-(global $M-RAND i32 (i32.const 16_777_216))
+;; road drawing
+(global $ROAD_OFFSET    (mut i32) (i32.const 0))
 
-;; swapiness
+;; rng 
+(global $RSEED    (mut i32) (i32.const 22345512))
+(global $A-RAND   i32 (i32.const 0x43FD43FD))
+(global $C-RAND   i32 (i32.const 0xC39EC3))
+(global $M-RAND   i32 (i32.const 16_777_216))
+
 (global $DRAW_COLORS_CACHE (mut i32) (i32.const 0))
 
 ;;=============;;
@@ -148,9 +151,10 @@
 
 (func $draw-backg
   (local $rspace i32)
-  (local $old i32)
+  (local $old    i32)
 
-  (local.set $rspace (i32.const 0))
+  ;; overdraw above to account for movement
+  (local.set $rspace (i32.const -40))
 
   ;; draw static intructions and scoreboard headers
   (call $text (i32.const 0x19b0) (i32.const 111) (i32.const 120))
@@ -164,17 +168,20 @@
   (call $draw-swap (i32.const 0x2))
   
   (loop $stripes
-    ;; rect(x: 77, y: rspace + 2, w: 6, h: 16)
+    ;; rect(x: 79, y: (rspace + 2) + offset, w: 6, h: 16)
     (call $rect (i32.const 79)
-                (i32.add (local.get $rspace) (i32.const 2))
+                (i32.add
+                  (i32.add (local.get $rspace) (i32.const 2))
+                  (global.get $ROAD_OFFSET))
                 (i32.const 3)
                 (i32.const 16))
 
     ;; rspace += 18
     (local.set $rspace (i32.add (local.get $rspace) (i32.const 20)))
 
-    ;; while(rspace < 160 [SCREEN HEIGHT])
-    (i32.lt_u (local.get $rspace) (i32.const 160))
+    ;; while(rspace < 180 [SCREEN HEIGHT])
+    ;; [we overdraw below to account for movement]
+    (i32.lt_s (local.get $rspace) (i32.const 180))
     br_if $stripes
   )
 
@@ -263,7 +270,7 @@
       end
 
       global.get $SPEED_MULT
-      f32.const 8.0  ;; Donkey base speed multiplier
+      f32.const 4.0  ;; Donkey base speed multiplier
       f32.mul
       i32.trunc_f32_u
       local.get $dony
@@ -321,13 +328,35 @@
   )
 )
 
-(func $upd-roads)
+(func $upd-roads
+  ;; if( ROAD_OFFSET > 20 [MAX_OFFSET] )
+  global.get $ROAD_OFFSET
+  i32.const 20 ;; max offset
+  i32.gt_u
+  if
+    ;; ROAD_OFFSET = 0
+    i32.const 0
+    global.set $ROAD_OFFSET
+  else
+    ;; dv of road calc
+    global.get $SPEED_MULT
+    f32.const 20.0  ;; Road speed multiplier 
+    f32.mul
+    i32.trunc_f32_u
 
+    global.get $ROAD_OFFSET
+    i32.add
+    global.set $ROAD_OFFSET
+  end
+)
+
+;; swap current value off DRAW_COLORS and onto DRAW_COLORS_CACHE
 (func $draw-swap (param $new i32)
   (global.set $DRAW_COLORS_CACHE (i32.load16_u (global.get $DRAW_COLORS)))
   (i32.store16 (global.get $DRAW_COLORS) (local.get $new))
 )
 
+;; swap value in DRAW_COLORS_CACHE back into DRAW_COLORS
 (func $draw-reset
   (i32.store16 (global.get $DRAW_COLORS) (global.get $DRAW_COLORS_CACHE))
 )
@@ -347,6 +376,7 @@
   global.get $M-RAND
   i32.rem_u
 
+  ;; set RSEED and return it
   global.set $RSEED
   global.get $RSEED
 )
@@ -358,7 +388,6 @@
    so we call the function three times, packing the random bits
    into a single number to be used for the rest of the function.
   ;)
-
   ;; s[0] = ran() 
   call $ran
   i32.const 0x3FFF0000
