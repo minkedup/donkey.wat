@@ -71,17 +71,17 @@
 ;; Global Variables ;;
 ;;==================;;
 (global $FCOUNT       (mut i32) (i32.const 0))
-(global $SMULT        (mut i32) (i32.const 1))
-(global $RSEED        (mut i32) (i32.const 123456789))
+(global $SPEED_MULT   (mut f32) (f32.const 0.25))
+(global $RSEED        (mut i32) (i32.const 22345512))
 
-(global $MAX-DONKEYS  i32 (i32.const 8))
-(global $N-DONKEYS    (mut i32) (i32.const 2)) ;; TODO: Remove 2 init
-(global $DE-DONKEY    (mut i32) (i32.const 0))
+(global $MAX_DONKEYS  i32 (i32.const 8))
+(global $NUM_DONKEYS  (mut i32) (i32.const 0))
+(global $DEALLOC_DONKEY    (mut i32) (i32.const 0))
 
 ;; rng constants
-(global $A-RAND i32 (i32.const 214013))
-(global $C-RAND i32 (i32.const 2531011))
-(global $M-RAND i32 (i32.const 2_147_483_648))
+(global $A-RAND i32 (i32.const 0x43FD43FD))
+(global $C-RAND i32 (i32.const 0xC39EC3))
+(global $M-RAND i32 (i32.const 16_777_216))
 
 ;; swapiness
 (global $DRAW_COLORS_CACHE (mut i32) (i32.const 0))
@@ -92,15 +92,13 @@
 
 ;; donkey position data
 ;; stored as two u8s per donkey (ypos, roadside)
-;; the list of donkeys is null-terminated
 (global $DONKEY_DATA i32 (i32.const 0x19d0))
-(data (i32.const 0x19d0) "\02\02\30\02")
+(data (i32.const 0x19d0) "\00\00\00\00\00\00\00\00")
 
 ;; static display strings
 (data (i32.const 0x19a0) "Driver\00")
 (data (i32.const 0x19a9) "Donkey\00")
 (data (i32.const 0x19b0) "Space\nto\nswitch\nlanes\00")
-
 
 ;; funky sprites
 ;; donkey
@@ -110,6 +108,21 @@
 (data
   (i32.const 0x2000)
   "\ff\ff\ff\ff\0f\fc\ff\ff\ff\ff\03\00\ff\ff\ff\ff\c0\03\ff\ff\ff\ff\c0\01\ff\00\00\00\0a\28\fc\00\00\00\00\00\fc\00\00\00\00\00\f0\00\00\00\00\03\f0\00\00\00\03\03\c3\00\00\00\03\c0\1f\00\00\00\0f\f0\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff"
+)
+
+;; TODO: Remove
+(data
+  (i32.const 0x2100)
+  " \00"
+)
+
+(func $pv (param $val i32)
+  (local $trans i32)
+
+  (local.set $trans (i32.add (local.get $val) (i32.const 48)))
+
+  (i32.store8 (i32.const 0x2100) (local.get $trans))
+  (call $trace (i32.const 0x2100))
 )
 
 
@@ -170,128 +183,148 @@
 )
 
 (func $draw-donkey      
-  (local $donkey-y i32)
-  (local $donkey-r i32)
-  (local $donkey-x i32)
-  (local $mem      i32)
-  (local $max-mem  i32)
+  (local $index  i32)
+  (local $mpoint i32)
+  (local $dx     i32) ;; donkey x-coord (found)
+  (local $dy     i32) ;; donkey y-coord (given)
+  (local $dr     i32) ;; donkey road    (given)
 
+  ;; swapin custom DRAW_COLORS
   (call $draw-swap (i32.const 0x6))
 
-  ;; memp = start
-  (local.set $mem (global.get $DONKEY_DATA))
-  ;; max = start + (n-donkeys * 2)
-  (local.set $max-mem (i32.add
-                        (global.get $DONKEY_DATA)
-                        (i32.mul (global.get $MAX-DONKEYS) (i32.const 2))))
+  (loop $draw
+    (block $cont
+      (local.set $mpoint (i32.add
+                           (i32.mul (local.get $index) (i32.const 2))
+                           (global.get $DONKEY_DATA)))
 
-  (loop $ddraw
-    ;; get the upper 8 bits of the memory location
-    (local.set $donkey-y (i32.load8_u (local.get $mem)))
+      (local.set $dy (i32.load8_u (local.get $mpoint)))
+      (local.set $dr (i32.load8_u (i32.add (local.get $mpoint) (i32.const 1))))
 
-    ;; get next 8 bits of memory by adding offset of 1 to pointer 
-    (local.set $donkey-r (i32.load8_u (i32.add
-                                      (local.get $mem) 
-                                      (i32.const 1))))
+      (i32.or (i32.eqz (local.get $dr)) (i32.eqz (local.get $dy)))
+      br_if $cont
 
-    ;; draw an individual donkey
-    (block $ddraw-d
-      ;; (donkey-y == 0 || donkey-r == 0) && next
-      (i32.eq (local.get $donkey-y) (i32.const 0))
-      (i32.eq (local.get $donkey-r) (i32.const 0))
-      i32.or
-      br_if $ddraw-d
-
-      ;; donkey-r == 1 && x = 52
-      ;; donkey-r == 2 && x = 84
-      (i32.eq (local.get $donkey-r) (i32.const 1))
+      (i32.eq (local.get $dr) (i32.const 1))
       if
-        (local.set $donkey-x (i32.const 52))
+        (local.set $dx (i32.const 52))
       else
-        (local.set $donkey-x (i32.const 84))
+        (local.set $dx (i32.const 83))
       end
 
-      ;; we do a little drawing
       (call $blit (i32.const 0x2000)
-            (local.get $donkey-x) 
-            (local.get $donkey-y)
+            (local.get $dx) 
+            (local.get $dy)
             (i32.const 24)
             (i32.const 20)
             (global.get $BLIT_2BPP))
     )
 
-    ;; while( mem < max-mem )
-    (local.tee $mem (i32.add (local.get $mem) (i32.const 2)))
-    local.get $max-mem
-    i32.lt_u
-    br_if $ddraw
+    (local.set $index (i32.add (local.get $index) (i32.const 1)))
+    (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
+    br_if $draw
   )
+  
+  ;; reset DRAW_COLORS to defaults
   (call $draw-reset)
 )
 
 (func $upd-player)
 (func $upd-donkey
-  (local $donkey-y i32)
-  (local $mpoint   i32)
-  (local $i        i32)
+  (local $index  i32)
+  (local $mpoint i32)
+  (local $dony   i32)
 
-  ;; mpoint = start
-  (local.set $mpoint (global.get $DONKEY_DATA))
-  (local.set $i      (i32.const 0))
+  (call $alloc-donkey (call $ran-int (i32.const 0) (i32.const 2)))
 
-  ;; update existing donkeys
-  (loop $dupd
-    ;; mpoint = start + (i * 2)
-    (local.set $mpoint (i32.add
-                         (global.get $DONKEY_DATA)
-                         (i32.mul (local.get $i) (i32.const 2))))
-    (block $dupd-d
-      ;; get the upper 8 bits of the memory location
-      (local.set $donkey-y (i32.load8_u (local.get $mpoint)))
+  (local.set $index (i32.const 0))
+  
+  (loop $upd
+    (block $cont
+      (local.set $mpoint (i32.add
+                          (i32.mul (local.get $index) (i32.const 2))
+                          (global.get $DONKEY_DATA)))
 
-      ;; branch out if donkey-y == 0 
-      (i32.eq (local.get $donkey-y) (i32.const 0))
-      br_if $dupd-d
+      (local.tee $dony (i32.load8_u (local.get $mpoint)))
+      i32.eqz
+      br_if $cont
 
-      ;; dv = ( SMULT * 8 )
-      (i32.mul (global.get $SMULT) (i32.const 8))
-
-      ;; y = y + dv
-      local.get $donkey-y
-      i32.add
-      local.set $donkey-y
-
-      ;; de-allocate off-screen donkeys
-      (i32.ge_u (local.get $donkey-y) (i32.const 148))
+      (i32.ge_u (local.get $dony) (i32.const 120))
       if
-        ;; store zeroes to prevent drawing
-        (i32.store8 
-          (local.get $mpoint)
-          (i32.const 0))
-        (i32.store8
-          (i32.add (local.get $mpoint) (i32.const 1))
-          (i32.const 0))
-        ;; store last de-allocated donkey spot
-        (global.set $DE-DONKEY (local.get $i))
+        ;; zero out donkey memory
+        (i32.store16 (local.get $mpoint) (i32.const 0x0000))
+        ;; NUM_DONKEYS--
+        (global.set $NUM_DONKEYS (i32.sub
+                                   (global.get $NUM_DONKEYS)
+                                   (i32.const 1)))
+        ;; set the latest deallocated donkey
+        (global.set $DEALLOC_DONKEY (local.get $index))
+        ;; skip updating 
+        br $cont
       end
 
-      ;; store updated donkey-y value back into the donkey
-      (i32.store8 (local.get $mpoint) (local.get $donkey-y))
+      global.get $SPEED_MULT
+      f32.const 8.0  ;; Donkey base speed multiplier
+      f32.mul
+      i32.trunc_f32_u
+      local.get $dony
+      i32.add
+      local.set $dony
+
+      (local.set $dony (i32.add (local.get $dony) (i32.const 10)))
+      (i32.store8 (local.get $mpoint) (local.get $dony))
+    )
+    
+    (local.set $index (i32.add (local.get $index) (i32.const 1)))
+    (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
+    br_if $upd
+  )
+)
+
+(func $alloc-donkey (param $road i32)
+  (local $test  i32)
+  (local $addr  i32)
+  (local $mmem  i32) ;; max memory
+
+  ;; initial search address is first address
+  (local.set $addr (global.get $DONKEY_DATA))
+
+  ;; max memory
+  (local.set $mmem (i32.add
+                     (i32.mul (global.get $MAX_DONKEYS) (i32.const 2))
+                     (global.get $DONKEY_DATA)))
+
+  (block $alloc
+    ;; num_donkeys >= max_donkeys
+    (i32.ge_u (global.get $NUM_DONKEYS) (global.get $MAX_DONKEYS))
+    br_if $alloc
+
+    (block $break
+      (loop $faddr
+        ;; test mem location under DEALLOC_DONKEY
+        (i32.eqz (i32.load8_u (local.get $addr)))
+        br_if $break
+
+        (local.set $addr (i32.add (local.get $addr) (i32.const 2)))
+        (i32.lt_u (local.get $addr) (local.get $mmem))
+        br_if $faddr
+      )
     )
 
-    ;; i++ && s[0] = i
-    (local.tee $i (i32.add (local.get $i) (i32.const 1)))
-    ;; while( i < N-DONKEYS)
-    global.get $N-DONKEYS
-    i32.lt_u
-    br_if $dupd
+    ;; create allocation
+    (i32.store8 (local.get $addr) (i32.const 0x01))
+    (i32.store8 (i32.add (local.get $addr) (i32.const 1)) (local.get $road))
+
+    ;; NUM_DONKEYS++
+    (global.set $NUM_DONKEYS (i32.add
+                               (global.get $NUM_DONKEYS) 
+                               (i32.const 1)))
   )
 )
 
 (func $upd-roads)
 
 (func $draw-swap (param $new i32)
-  (global.set $DRAW_COLORS_CACHE (i32.load (global.get $DRAW_COLORS)))
+  (global.set $DRAW_COLORS_CACHE (i32.load16_u (global.get $DRAW_COLORS)))
   (i32.store16 (global.get $DRAW_COLORS) (local.get $new))
 )
 
@@ -299,7 +332,7 @@
   (i32.store16 (global.get $DRAW_COLORS) (global.get $DRAW_COLORS_CACHE))
 )
 
-;; lgc algorithm random number generator
+;; lgc rng 
 (func $ran (result i32)
   ;; a * seed
   global.get $RSEED
@@ -319,35 +352,22 @@
 )
 
 (func $ran-int (param $low i32) (param $high i32) (result i32)
-  (local $a i32)
-  (local $r i32)
-
-  ;; a = high - low
-  local.get $high
-  local.get $low
-  i32.sub
-  local.set $a
-
   ;; s[0] = random 
   call $ran
 
-  ;; r = ran % a
-  local.get $a
+  ;; s[1] = (high + 1)
+  local.get $high
+  i32.const 1
+  i32.add
+
+  ;; s[1] = (high + 1) - low
+  local.get $low
+  i32.sub
+
+  ;; s[0] = ran % a
   i32.rem_u
-  local.set $r
 
-  (block $lz
-    ;; if: low == 0; return
-    local.get $low
-    i32.eqz
-    br_if $lz
-
-    ;; else: r = r + low
-    local.get $low
-    local.get $r
-    i32.add
-    local.set $r
-  )
-
-  local.get $r
+  ;; else: s[0] = s[0] + low
+  local.get $low
+  i32.add
 )
