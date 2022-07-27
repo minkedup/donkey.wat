@@ -70,6 +70,12 @@
 ;;==================;;
 ;; Global Variables ;;
 ;;==================;;
+
+;; score counters
+(global $DRIVER_SCORE (mut i32) (i32.const 0))
+(global $DONKEY_SCORE (mut i32) (i32.const 0))
+
+;; frame count & speed multiplier
 (global $FCOUNT       (mut i32) (i32.const 0))
 (global $SPEED_MULT   (mut f32) (f32.const 0.25))
 
@@ -87,6 +93,7 @@
 (global $C-RAND   i32 (i32.const 0xC39EC3))
 (global $M-RAND   i32 (i32.const 16_777_216))
 
+;; DRAW_COLORS swapping
 (global $DRAW_COLORS_CACHE (mut i32) (i32.const 0))
 
 ;;=============;;
@@ -104,24 +111,78 @@
 (data (i32.const 0x19b0) "Space\nto\nswitch\nlanes\00")
 
 ;; funky sprites
-;; donkey
-;; donkey_width: u32 = 24;
-;; donkey_height: u32 = 20;
-;; donkey_flags: u32 = 1; // BLIT_2BPP
+;; donkey ( width: 24, height: 20, flags: BLIT_2BPP )
 (data
   (i32.const 0x2000)
   "\ff\ff\ff\ff\0f\fc\ff\ff\ff\ff\03\00\ff\ff\ff\ff\c0\03\ff\ff\ff\ff\c0\01\ff\00\00\00\0a\28\fc\00\00\00\00\00\fc\00\00\00\00\00\f0\00\00\00\00\03\f0\00\00\00\03\03\c3\00\00\00\03\c0\1f\00\00\00\0f\f0\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff"
 )
 
+;; car ( width: 20, height: 32, flags: BLIT_2BPP )
+(data
+  (i32.const 0x2080)
+  "\aa\aa\00\aa\aa\aa\aa\00\aa\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\a0\a0\00\0a\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\a0\00\0a\0a\aa\a0\00\0a\aa\aa\a0\14\0a\aa\aa\a0\55\0a\aa\aa\a0\41\0a\aa\aa\a1\41\4a\aa\aa\a1\00\4a\aa\aa\a1\41\4a\aa\00\a0\55\0a\00\00\a0\00\0a\00\00\a0\00\0a\00\00\a1\55\4a\00\00\81\14\42\00\00\81\14\42\00\00\a1\55\4a\00\00\a1\14\4a\00\00\a1\14\4a\00\aa\a1\55\4a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\aa\a8\00\2a\aa"
+)
+
 ;; TODO: Remove this debug printing code
-(data (i32.const 0x2100) "\00\00")
+(global $PVADDR i32 (i32.const 0x2100))
+(global $PVMAXL i32 (i32.const 2))
+(data (i32.const 0x2100) "  \00")
 (func $pv (param $val i32)
-  (local $trans i32)
+  (local $index      i32)
+  (local $digit_char i32)
+  (local $digit_val  i32)
 
-  (local.set $trans (i32.add (local.get $val) (i32.const 48)))
+  global.get $PVMAXL
+  local.set $index
 
-  (i32.store8 (i32.const 0x2100) (local.get $trans))
-  (call $trace (i32.const 0x2100))
+  local.get $val
+  i32.eqz
+  if
+    local.get $index
+    i32.const 1
+    i32.sub
+    local.set $index
+
+    (i32.store8 (i32.add (local.get $index) (global.get $PVADDR)) (i32.const 48))
+  end
+
+  (loop $digit_loop (block $break
+    local.get $index
+    i32.eqz
+    br_if $break
+
+    local.get $val
+    i32.const 10
+    i32.rem_u
+
+    local.set $digit_val
+    local.get $val
+    i32.eqz
+    if
+      i32.const 32
+      local.set $digit_char
+    else
+      local.get $digit_val
+      i32.const 48
+      i32.add
+
+      local.set $digit_char
+    end
+
+    local.get $index
+    i32.const 1
+    i32.sub
+    local.set $index
+    ;; store
+    (i32.store8
+      (i32.add (global.get $PVADDR) (local.get $index)) (local.get $digit_char))
+
+    local.get $val
+    i32.const 10
+    i32.div_u
+    local.set $val
+    br $digit_loop
+  ))
 )
 
 
@@ -143,6 +204,7 @@
   ;; drawing logic
   (call $draw-backg)
   (call $draw-donkey)
+  (call $draw-player)
 )
 
 (func $draw-backg
@@ -156,6 +218,12 @@
   (call $text (i32.const 0x19b0) (i32.const 111) (i32.const 120)) ;; instruct.
   (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 018)) ;; donkeys
   (call $text (i32.const 0x19a9) (i32.const 111) (i32.const 018)) ;; drivers
+
+  (call $pv (global.get $DRIVER_SCORE))
+  (call $text (global.get $PVADDR) (i32.const 012) (i32.const 032))
+
+  (call $pv (global.get $DONKEY_SCORE))
+  (call $text (global.get $PVADDR) (i32.const 123) (i32.const 032))
 
   ;; draw road in the center
   (call $rect (i32.const 50) (i32.const 0) (i32.const 60) (i32.const 160))
@@ -231,6 +299,26 @@
   (call $draw-reset)
 )
 
+(func $draw-player
+  (local $dx i32)
+  (local $dy i32)
+
+  (local.set $dy (i32.sub
+                   (i32.const 120)
+                   (i32.mul (global.get $DRIVER_SCORE) (i32.const 8))))
+
+  (call $draw-swap (i32.const 6))
+
+  (call $blit (i32.const 0x2080)
+        (local.get $dx)
+        (local.get $dy)
+        (i32.const 20)
+        (i32.const 32)
+        (global.get $BLIT_2BPP))
+
+  (call $draw-reset)
+)
+
 (func $upd-player)
 (func $upd-donkey
   (local $index  i32)
@@ -258,6 +346,14 @@
 
       (i32.ge_u (local.get $dony) (i32.const 130))
       if
+        ;; increase the speed multiplier
+        (global.set $SPEED_MULT (f32.add
+                                  (global.get $SPEED_MULT)
+                                  (f32.const 0.005)))
+        ;; increase the player score
+        (global.set $DRIVER_SCORE (i32.add
+                                    (global.get $DRIVER_SCORE)
+                                    (i32.const 1)))
         ;; zero out donkey memory
         (i32.store16 (local.get $mpoint) (i32.const 0x0000))
         ;; NUM_DONKEYS--
@@ -291,9 +387,9 @@
   (local $addr  i32)
   (local $mmem  i32) ;; max memory
 
-  ;; delta = ( SPEED_MULT * 4.00 )
+  ;; delta = ( SPEED_MULT * 10.00 )
   global.get $SPEED_MULT
-  f32.const 4.0
+  f32.const 10.0
   f32.mul
   i32.trunc_f32_u
 
@@ -302,9 +398,9 @@
   i32.add
   global.set $LDONKEY_LOC
 
-  ;; if( LDONKEY_LOC < 4 ) : return
+  ;; if( LDONKEY_LOC < 14 ) : return
   ;; else : LDONKEY_LOC = 0
-  (i32.le_u (global.get $LDONKEY_LOC) (i32.const 4))
+  (i32.le_u (global.get $LDONKEY_LOC) (i32.const 14))
   if
     return
   else
