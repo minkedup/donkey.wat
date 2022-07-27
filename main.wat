@@ -352,8 +352,45 @@
 )
 
 (func $ran-int (param $low i32) (param $high i32) (result i32)
-  ;; s[0] = random 
+  (;
+   We run the LGC algorithm random number generator three times.
+   The random function only outputs random bits betwen 30 and 16,
+   so we call the function three times, packing the random bits
+   into a single number to be used for the rest of the function.
+  ;)
+
+  ;; s[0] = ran() 
   call $ran
+  i32.const 0x3FFF0000
+  i32.and
+
+  ;; s[0] << 2
+  i32.const 2
+  i32.shl
+
+  ;; s[1] = ran()
+  call $ran
+  i32.const 0x3FFF0000
+  i32.and
+
+  ;; s[1] >> 12
+  i32.const 12
+  i32.shr_u
+
+  ;; s[0] = s[1] or s[0]
+  i32.or
+
+  ;; s[1] = ran()
+  call $ran
+  i32.const 0x3FFF0000
+  i32.and
+
+  ;; s[1] >> 26
+  i32.const 20
+  i32.shr_u
+
+  ;; s[0] = s[1] or s[0]
+  i32.or
 
   ;; s[1] = (high + 1)
   local.get $high
@@ -364,7 +401,7 @@
   local.get $low
   i32.sub
 
-  ;; s[0] = ran % a
+  ;; s[0] = s[0] % s[1]
   i32.rem_u
 
   ;; else: s[0] = s[0] + low
