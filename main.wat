@@ -117,13 +117,16 @@
   "\ff\ff\ff\ff\0f\fc\ff\ff\ff\ff\03\00\ff\ff\ff\ff\c0\03\ff\ff\ff\ff\c0\01\ff\00\00\00\0a\28\fc\00\00\00\00\00\fc\00\00\00\00\00\f0\00\00\00\00\03\f0\00\00\00\03\03\c3\00\00\00\03\c0\1f\00\00\00\0f\f0\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff"
 )
 
+;; side of the road the driver is on
+(global $DRIVER_SIDE (mut i32) (i32.const 1))
+
 ;; car ( width: 20, height: 32, flags: BLIT_2BPP )
 (data
   (i32.const 0x2080)
   "\aa\aa\00\aa\aa\aa\aa\00\aa\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\a0\a0\00\0a\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\a0\00\0a\0a\aa\a0\00\0a\aa\aa\a0\14\0a\aa\aa\a0\55\0a\aa\aa\a0\41\0a\aa\aa\a1\41\4a\aa\aa\a1\00\4a\aa\aa\a1\41\4a\aa\00\a0\55\0a\00\00\a0\00\0a\00\00\a0\00\0a\00\00\a1\55\4a\00\00\81\14\42\00\00\81\14\42\00\00\a1\55\4a\00\00\a1\14\4a\00\00\a1\14\4a\00\aa\a1\55\4a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\aa\a8\00\2a\aa"
 )
 
-;; TODO: Remove this debug printing code
+;; TODO: Formalize this conversion code 
 (global $PVADDR i32 (i32.const 0x2100))
 (global $PVMAXL i32 (i32.const 2))
 (data (i32.const 0x2100) "  \00")
@@ -195,7 +198,7 @@
   ;; run update logic every 15 frames
   (if (i32.eqz (i32.rem_u (global.get $FCOUNT) (i32.const 15)))
     (then
-      (call $upd-player)
+      (call $upd-driver)
       (call $upd-donkey)
       (call $upd-roads)
     )
@@ -204,7 +207,7 @@
   ;; drawing logic
   (call $draw-backg)
   (call $draw-donkey)
-  (call $draw-player)
+  (call $draw-driver)
 )
 
 (func $draw-backg
@@ -299,14 +302,25 @@
   (call $draw-reset)
 )
 
-(func $draw-player
+(func $draw-driver
   (local $dx i32)
   (local $dy i32)
 
+  ;; dy = 120 + ( DRIVER_SCORE * 8 )
   (local.set $dy (i32.sub
                    (i32.const 120)
                    (i32.mul (global.get $DRIVER_SCORE) (i32.const 8))))
 
+  ;; if( DRIVER_SIDE == 1 ) : dx = 52
+  ;; else : dx = 83
+  (i32.eq (global.get $DRIVER_SIDE) (i32.const 1))
+  if
+    (local.set $dx (i32.const 52))
+  else
+    (local.set $dx (i32.const 83))
+  end
+
+  ;; swapon custom DRAW_COLORS
   (call $draw-swap (i32.const 6))
 
   (call $blit (i32.const 0x2080)
@@ -316,10 +330,11 @@
         (i32.const 32)
         (global.get $BLIT_2BPP))
 
+  ;; reset DRAW_COLORS
   (call $draw-reset)
 )
 
-(func $upd-player)
+(func $upd-driver)
 (func $upd-donkey
   (local $index  i32)
   (local $mpoint i32)
@@ -350,7 +365,7 @@
         (global.set $SPEED_MULT (f32.add
                                   (global.get $SPEED_MULT)
                                   (f32.const 0.005)))
-        ;; increase the player score
+        ;; increase the driver score
         (global.set $DRIVER_SCORE (i32.add
                                     (global.get $DRIVER_SCORE)
                                     (i32.const 1)))
