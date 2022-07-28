@@ -1,3 +1,4 @@
+;; declare page of memory
 (import "env" "memory" (memory 1))
 
 ;;===================;;
@@ -96,6 +97,9 @@
 ;; DRAW_COLORS swapping
 (global $DRAW_COLORS_CACHE (mut i32) (i32.const 0))
 
+;; player input
+(global $PREV_GAMEPAD (mut i32) (i32.const 0))
+
 ;;=============;;
 ;; Funky Datas ;;
 ;;=============;;
@@ -108,7 +112,7 @@
 ;; static display strings
 (data (i32.const 0x19a0) "Driver\00")
 (data (i32.const 0x19a9) "Donkey\00")
-(data (i32.const 0x19b0) "Space\nto\nswitch\nlanes\00")
+(data (i32.const 0x19b0) " X to\nswitch\nlanes\00")
 
 ;; funky sprites
 ;; donkey ( width: 24, height: 20, flags: BLIT_2BPP )
@@ -121,6 +125,7 @@
 (global $DRIVER_SIDE (mut i32) (i32.const 1))
 
 ;; car ( width: 20, height: 32, flags: BLIT_2BPP )
+;; TODO: Fix this car sprite from source
 (data
   (i32.const 0x2080)
   "\aa\aa\00\aa\aa\aa\aa\00\aa\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\a0\a0\00\0a\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\a0\00\0a\0a\aa\a0\00\0a\aa\aa\a0\14\0a\aa\aa\a0\55\0a\aa\aa\a0\41\0a\aa\aa\a1\41\4a\aa\aa\a1\00\4a\aa\aa\a1\41\4a\aa\00\a0\55\0a\00\00\a0\00\0a\00\00\a0\00\0a\00\00\a1\55\4a\00\00\81\14\42\00\00\81\14\42\00\00\a1\55\4a\00\00\a1\14\4a\00\00\a1\14\4a\00\aa\a1\55\4a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\aa\a8\00\2a\aa"
@@ -135,11 +140,9 @@
   (local $digit_char i32)
   (local $digit_val  i32)
 
-  global.get $PVMAXL
-  local.set $index
+  (local.set $index (global.get $PVMAXL))
 
-  local.get $val
-  i32.eqz
+  (i32.eqz (local.get $val))
   if
     local.get $index
     i32.const 1
@@ -150,8 +153,7 @@
   end
 
   (loop $digit_loop (block $break
-    local.get $index
-    i32.eqz
+    (i32.eqz (local.get $index))
     br_if $break
 
     local.get $val
@@ -159,8 +161,8 @@
     i32.rem_u
 
     local.set $digit_val
-    local.get $val
-    i32.eqz
+
+    (i32.eqz (local.get $val))
     if
       i32.const 32
       local.set $digit_char
@@ -194,8 +196,10 @@
 
 (func (export "update")
   (global.set $FCOUNT (i32.add (global.get $FCOUNT) (i32.const 1)))
+  ;; handle player input
+  (call $pinput)
 
-  ;; run update logic every 15 frames
+  ;; run position update logic FRAME % 15 
   (if (i32.eqz (i32.rem_u (global.get $FCOUNT) (i32.const 15)))
     (then
       (call $upd-driver)
@@ -208,6 +212,29 @@
   (call $draw-backg)
   (call $draw-donkey)
   (call $draw-driver)
+)
+
+(func $pinput
+  (local $gamepad i32)
+  (local $pressed i32)
+
+  (local.set $gamepad (i32.load8_u (global.get $GAMEPAD1)))
+
+  (local.set $pressed (i32.and
+                        (local.get $gamepad)
+                        (i32.xor
+                          (local.get $gamepad)
+                          (global.get $PREV_GAMEPAD))))
+
+  (global.set $PREV_GAMEPAD (local.get $gamepad))
+
+  (i32.and (local.get $pressed) (global.get $BUTTON_1))
+  if
+    global.get $DRIVER_SIDE
+    i32.const 0x3
+    i32.xor
+    global.set $DRIVER_SIDE
+  end
 )
 
 (func $draw-backg
@@ -311,13 +338,13 @@
                    (i32.const 120)
                    (i32.mul (global.get $DRIVER_SCORE) (i32.const 8))))
 
-  ;; if( DRIVER_SIDE == 1 ) : dx = 52
-  ;; else : dx = 83
+  ;; if( DRIVER_SIDE == 1 ) : dx = 54
+  ;; else : dx = 86
   (i32.eq (global.get $DRIVER_SIDE) (i32.const 1))
   if
-    (local.set $dx (i32.const 52))
+    (local.set $dx (i32.const 54))
   else
-    (local.set $dx (i32.const 83))
+    (local.set $dx (i32.const 86))
   end
 
   ;; swapon custom DRAW_COLORS
