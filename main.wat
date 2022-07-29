@@ -78,7 +78,7 @@
 
 ;; frame count & speed multiplier
 (global $FCOUNT       (mut i32) (i32.const 0))
-(global $SPEED_MULT   (mut f32) (f32.const 0.25))
+(global $SPEED_MULT   (mut f32) (f32.const 1.00))
 
 ;; donkey allocation
 (global $MAX_DONKEYS    i32 (i32.const 8))
@@ -123,6 +123,7 @@
 
 ;; side of the road the driver is on
 (global $DRIVER_SIDE (mut i32) (i32.const 1))
+;; TODO: Consider replacing with calc based on DRIVER_SCORE
 (global $DRIVER_PROG (mut i32) (i32.const 0))
 
 ;; car ( width: 20, height: 32, flags: BLIT_2BPP )
@@ -251,9 +252,11 @@
   (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 018)) ;; donkeys
   (call $text (i32.const 0x19a9) (i32.const 111) (i32.const 018)) ;; drivers
 
+  ;; draw driver score
   (call $pv (global.get $DRIVER_SCORE))
   (call $text (global.get $PVADDR) (i32.const 012) (i32.const 032))
 
+  ;; draw donkey score
   (call $pv (global.get $DONKEY_SCORE))
   (call $text (global.get $PVADDR) (i32.const 123) (i32.const 032))
 
@@ -396,10 +399,12 @@
 
       (i32.ge_u (local.get $dony) (i32.const 130))
       if
-        ;; increase the speed multiplier
+        ;; TODO: change increment of increase
+        ;;; increase the speed multiplier
         (global.set $SPEED_MULT (f32.add
                                   (global.get $SPEED_MULT)
-                                  (f32.const 0.005)))
+                                  (f32.const 0.05)))
+
         ;; increase the driver score
         (global.set $DRIVER_SCORE (i32.add
                                     (global.get $DRIVER_SCORE)
@@ -419,14 +424,14 @@
       end
 
       global.get $SPEED_MULT
-      f32.const 0.0525  ;; Donkey base speed multiplier
-      f32.div
+      f32.const 8.00
+      f32.mul
       i32.trunc_f32_u
+
       local.get $dony
       i32.add
       local.set $dony
 
-      (local.set $dony (i32.add (local.get $dony) (i32.const 10)))
       (i32.store8 (local.get $mpoint) (local.get $dony))
     )
 
@@ -454,7 +459,7 @@
 
   ;; if( LDONKEY_LOC < 14 ) : return
   ;; else : LDONKEY_LOC = 0
-  (i32.le_u (global.get $LDONKEY_LOC) (i32.const 14))
+  (i32.le_u (global.get $LDONKEY_LOC) (i32.const 77))
   if
     return
   else
@@ -500,26 +505,21 @@
 )
 
 (func $upd-roads
-  ;; if( ROAD_OFFSET > 20 [MAX_OFFSET] )
+  ;; s[0] = ROAD_OFFSET
   global.get $ROAD_OFFSET
-  i32.const 20 ;; max offset
-  i32.gt_u
-  if
-    ;; ROAD_OFFSET = 0
-    i32.const 0
-    global.set $ROAD_OFFSET
-  else
-    ;; s[0] = road_delta_v
-    global.get $SPEED_MULT
-    f32.const 20.0  ;; Road speed multiplier
-    f32.mul
-    i32.trunc_f32_u
 
-    ;; ROAD_OFFSET = dv + ROAD_OFFSET
-    global.get $ROAD_OFFSET
-    i32.add
-    global.set $ROAD_OFFSET
-  end
+  ;; s[1] = ( SPEED_MULT * 1.25 )
+  global.get $SPEED_MULT
+  f32.const 5.25
+  f32.mul
+  i32.trunc_f32_u
+
+  ;; s[0] = ROAD_OFFSET + ( SPEED_MULT * 1.25 )
+  i32.add
+  
+  i32.const 18
+  i32.rem_u
+  global.set $ROAD_OFFSET
 )
 
 ;; swap current value off DRAW_COLORS and onto DRAW_COLORS_CACHE
