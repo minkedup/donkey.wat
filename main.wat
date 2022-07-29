@@ -447,9 +447,9 @@
           (i32.ne (local.get $donr) (global.get $DRIVER_ROAD))
           br_if $collision
 
-          ;; ! ( donkey_y >= driver_y ) && ( donkey_y <= (driver_y + driver_size) )
+          ;; ! ( (donkey_y + (donkey_size / 2))  >= driver_y ) && ( donkey_y <= (driver_y + driver_size) )
           (i32.and
-            (i32.ge_u (local.get $dony) (local.get $drivy))
+            (i32.ge_u (i32.add (local.get $dony) (i32.const 10)) (local.get $drivy))
             (i32.le_u (local.get $dony) (i32.add (local.get $drivy) (i32.const 32)))
           )
           i32.const 1
@@ -477,13 +477,10 @@
 (func $reset-game
   ;; reset everything
   (global.set $NUM_DONKEYS   (i32.const 0))
-  (global.set $DRIVER_SCORE  (i32.const 0))
   (global.set $DRIVER_PROG   (i32.const 0))
   (global.set $SPEED_MULT    (f32.const 1.0))
 
   (i32.store (global.get $DONKEY_DATA) (i32.const 0))
-
-  (call $trace (i32.const 0x19a0))
 )
 
 (func $alloc-donkey (param $road i32)
