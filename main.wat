@@ -122,7 +122,7 @@
 )
 
 ;; side of the road the driver is on
-(global $DRIVER_SIDE (mut i32) (i32.const 1))
+(global $DRIVER_ROAD (mut i32) (i32.const 1))
 ;; TODO: Consider replacing with calc based on DRIVER_SCORE
 (global $DRIVER_PROG (mut i32) (i32.const 0))
 
@@ -233,10 +233,10 @@
   (i32.and (local.get $pressed) (global.get $BUTTON_1))
   if
     ;; invert last two bits to switch between 1 and 2
-    global.get $DRIVER_SIDE
+    global.get $DRIVER_ROAD
     i32.const 0x3
     i32.xor
-    global.set $DRIVER_SIDE
+    global.set $DRIVER_ROAD
   end
 )
 
@@ -343,9 +343,9 @@
                    (i32.const 120)
                    (i32.mul (global.get $DRIVER_PROG) (i32.const 8))))
 
-  ;; if( DRIVER_SIDE == 1 ) : dx = 54
+  ;; if( DRIVER_ROAD == 1 ) : dx = 54
   ;; else : dx = 86
-  (i32.eq (global.get $DRIVER_SIDE) (i32.const 1))
+  (i32.eq (global.get $DRIVER_ROAD) (i32.const 1))
   if
     (local.set $dx (i32.const 54))
   else
@@ -378,67 +378,112 @@
   (local $mpoint i32)
   (local $dony   i32)
   (local $donr   i32)
+  (local $drivy  i32)
 
   (call $alloc-donkey (call $ran-int (i32.const 1) (i32.const 2)))
 
+  ;; drivy = 120 + ( DRIVER_PROG * 8 )
+  (local.set $drivy (i32.sub
+                   (i32.const 120)
+                   (i32.mul (global.get $DRIVER_PROG) (i32.const 8))))
+
   (local.set $index (i32.const 0))
 
-  (loop $upd
-    (block $cont
-      (local.set $mpoint (i32.add
-                          (i32.mul (local.get $index) (i32.const 2))
-                          (global.get $DONKEY_DATA)))
+  (block $break
+    (loop $upd
+      (block $cont
+        (local.set $mpoint (i32.add
+                            (i32.mul (local.get $index) (i32.const 2))
+                            (global.get $DONKEY_DATA)))
 
-      (local.set $dony (i32.load8_u (local.get $mpoint)))
-      (local.set $donr (i32.load8_u (i32.add
-                                      (local.get $mpoint)
-                                      (i32.const 1))))
+        (local.set $dony (i32.load8_u (local.get $mpoint)))
+        (local.set $donr (i32.load8_u (i32.add
+                                        (local.get $mpoint)
+                                        (i32.const 1))))
 
-      (i32.and (i32.eqz (local.get $donr)) (i32.eqz (local.get $donr)))
-      br_if $cont
+        ;; check that this memory location is a donkey and not empty
+        (i32.and (i32.eqz (local.get $donr)) (i32.eqz (local.get $donr)))
+        br_if $cont
 
-      (i32.ge_u (local.get $dony) (i32.const 130))
-      if
-        ;; TODO: change increment of increase
-        ;;; increase the speed multiplier
-        (global.set $SPEED_MULT (f32.add
-                                  (global.get $SPEED_MULT)
-                                  (f32.const 0.05)))
+        ;; update donkey y value
+        global.get $SPEED_MULT
+        f32.const 8.00
+        f32.mul
+        i32.trunc_f32_u
 
-        ;; increase the driver score
-        (global.set $DRIVER_SCORE (i32.add
-                                    (global.get $DRIVER_SCORE)
-                                    (i32.const 1)))
+        local.get $dony
+        i32.add
+        local.set $dony
 
-        ;; increase driver progress
-        (global.set $DRIVER_PROG (i32.add (global.get $DRIVER_PROG) (i32.const 1)))
+        ;; remove donkey if off-screen and update scores
+        (i32.ge_u (local.get $dony) (i32.const 150))
+        if
+          ;; TODO: change increment of increase
+          ;;; increase the speed multiplier
+          (global.set $SPEED_MULT (f32.add
+                                    (global.get $SPEED_MULT)
+                                    (f32.const 0.05)))
 
-        ;; zero out donkey memory
-        (i32.store16 (local.get $mpoint) (i32.const 0x0000))
-        ;; NUM_DONKEYS--
-        (global.set $NUM_DONKEYS (i32.sub
-                                   (global.get $NUM_DONKEYS)
-                                   (i32.const 1)))
-        ;; skip updating
-        br $cont
-      end
+          ;; increase the driver score
+          (global.set $DRIVER_SCORE (i32.add
+                                      (global.get $DRIVER_SCORE)
+                                      (i32.const 1)))
 
-      global.get $SPEED_MULT
-      f32.const 8.00
-      f32.mul
-      i32.trunc_f32_u
+          ;; increase driver progress
+          (global.set $DRIVER_PROG (i32.add (global.get $DRIVER_PROG) (i32.const 1)))
 
-      local.get $dony
-      i32.add
-      local.set $dony
+          ;; zero out donkey memory
+          (i32.store16 (local.get $mpoint) (i32.const 0x0000))
+          ;; NUM_DONKEYS--
+          (global.set $NUM_DONKEYS (i32.sub
+                                     (global.get $NUM_DONKEYS)
+                                     (i32.const 1)))
+          ;; skip updating
+          br $cont
+        end
 
-      (i32.store8 (local.get $mpoint) (local.get $dony))
+        (block $collision
+          ;; if ( donkey_road != driver_road ) : continue
+          (i32.ne (local.get $donr) (global.get $DRIVER_ROAD))
+          br_if $collision
+
+          ;; ! ( donkey_y >= driver_y ) && ( donkey_y <= (driver_y + driver_size) )
+          (i32.and
+            (i32.ge_u (local.get $dony) (local.get $drivy))
+            (i32.le_u (local.get $dony) (i32.add (local.get $drivy) (i32.const 32)))
+          )
+          i32.const 1
+          i32.xor
+          br_if $collision
+
+          (global.set $DONKEY_SCORE (i32.add (global.get $DONKEY_SCORE) (i32.const 1)))
+
+          (call $reset-game)
+
+          br $break
+        )
+
+        ;; store updated donkey y back into donkey
+        (i32.store8 (local.get $mpoint) (local.get $dony))
+      )
+
+      (local.set $index (i32.add (local.get $index) (i32.const 1)))
+      (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
+      br_if $upd
     )
-
-    (local.set $index (i32.add (local.get $index) (i32.const 1)))
-    (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
-    br_if $upd
   )
+)
+
+(func $reset-game
+  ;; reset everything
+  (global.set $NUM_DONKEYS   (i32.const 0))
+  (global.set $DRIVER_SCORE  (i32.const 0))
+  (global.set $DRIVER_PROG   (i32.const 0))
+  (global.set $SPEED_MULT    (f32.const 1.0))
+
+  (i32.store (global.get $DONKEY_DATA) (i32.const 0))
+
+  (call $trace (i32.const 0x19a0))
 )
 
 (func $alloc-donkey (param $road i32)
