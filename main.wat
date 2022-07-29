@@ -123,6 +123,7 @@
 
 ;; side of the road the driver is on
 (global $DRIVER_SIDE (mut i32) (i32.const 1))
+(global $DRIVER_PROG (mut i32) (i32.const 0))
 
 ;; car ( width: 20, height: 32, flags: BLIT_2BPP )
 ;; TODO: Fix this car sprite from source
@@ -202,8 +203,8 @@
   ;; run position update logic FRAME % 15 
   (if (i32.eqz (i32.rem_u (global.get $FCOUNT) (i32.const 15)))
     (then
-      (call $upd-driver)
       (call $upd-donkey)
+      (call $upd-driver)
       (call $upd-roads)
     )
   )
@@ -230,6 +231,7 @@
 
   (i32.and (local.get $pressed) (global.get $BUTTON_1))
   if
+    ;; invert last two bits to switch between 1 and 2
     global.get $DRIVER_SIDE
     i32.const 0x3
     i32.xor
@@ -333,10 +335,10 @@
   (local $dx i32)
   (local $dy i32)
 
-  ;; dy = 120 + ( DRIVER_SCORE * 8 )
+  ;; dy = 120 + ( DRIVER_PROG * 8 )
   (local.set $dy (i32.sub
                    (i32.const 120)
-                   (i32.mul (global.get $DRIVER_SCORE) (i32.const 8))))
+                   (i32.mul (global.get $DRIVER_PROG) (i32.const 8))))
 
   ;; if( DRIVER_SIDE == 1 ) : dx = 54
   ;; else : dx = 86
@@ -361,7 +363,13 @@
   (call $draw-reset)
 )
 
-(func $upd-driver)
+(func $upd-driver
+  ;; DRIVER_PROG = DRIVER_PROG % 12
+  (global.set $DRIVER_PROG (i32.rem_u 
+                             (global.get $DRIVER_PROG) 
+                             (i32.const 12)))
+)
+
 (func $upd-donkey
   (local $index  i32)
   (local $mpoint i32)
@@ -396,6 +404,10 @@
         (global.set $DRIVER_SCORE (i32.add
                                     (global.get $DRIVER_SCORE)
                                     (i32.const 1)))
+
+        ;; increase driver progress
+        (global.set $DRIVER_PROG (i32.add (global.get $DRIVER_PROG) (i32.const 1)))
+
         ;; zero out donkey memory
         (i32.store16 (local.get $mpoint) (i32.const 0x0000))
         ;; NUM_DONKEYS--
