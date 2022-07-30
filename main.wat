@@ -123,7 +123,6 @@
 
 ;; side of the road the driver is on
 (global $DRIVER_ROAD (mut i32) (i32.const 1))
-;; TODO: Consider replacing with calc based on DRIVER_SCORE
 (global $DRIVER_PROG (mut i32) (i32.const 0))
 
 ;; car ( width: 20, height: 32, flags: BLIT_2BPP )
@@ -134,15 +133,21 @@
 )
 
 ;; TODO: Formalize this conversion code 
-(global $PVADDR i32 (i32.const 0x2100))
+(global $DCADDR i32 (i32.const 0x2100))
 (global $PVMAXL i32 (i32.const 2))
-(data (i32.const 0x2100) "  \00")
-(func $pv (param $val i32)
+(data (i32.const 0x2100) "                    \00")
+(func $num-to-decstr (param $val i32) (param $strlen i32)
   (local $index      i32)
   (local $digit_char i32)
   (local $digit_val  i32)
 
-  (local.set $index (global.get $PVMAXL))
+  (i32.gt_u (local.get $strlen) (global.get $PVMAXL))
+  if
+    return
+  end
+
+  local.get $strlen
+  local.set $index
 
   (i32.eqz (local.get $val))
   if
@@ -151,7 +156,7 @@
     i32.sub
     local.set $index
 
-    (i32.store8 (i32.add (local.get $index) (global.get $PVADDR)) (i32.const 48))
+    (i32.store8 (i32.add (local.get $index) (global.get $DCADDR)) (i32.const 48))
   end
 
   (loop $digit_loop (block $break
@@ -182,7 +187,7 @@
     local.set $index
     ;; store
     (i32.store8
-      (i32.add (global.get $PVADDR) (local.get $index)) (local.get $digit_char))
+      (i32.add (global.get $DCADDR) (local.get $index)) (local.get $digit_char))
 
     local.get $val
     i32.const 10
@@ -253,12 +258,12 @@
   (call $text (i32.const 0x19a9) (i32.const 111) (i32.const 018)) ;; drivers
 
   ;; draw driver score
-  (call $pv (global.get $DRIVER_SCORE))
-  (call $text (global.get $PVADDR) (i32.const 012) (i32.const 032))
+  (call $num-to-decstr (global.get $DRIVER_SCORE) (i32.const 2))
+  (call $text (global.get $DCADDR) (i32.const 012) (i32.const 032))
 
   ;; draw donkey score
-  (call $pv (global.get $DONKEY_SCORE))
-  (call $text (global.get $PVADDR) (i32.const 123) (i32.const 032))
+  (call $num-to-decstr (global.get $DONKEY_SCORE) (i32.const 2))
+  (call $text (global.get $DCADDR) (i32.const 123) (i32.const 032))
 
   ;; draw road in the center
   (call $rect (i32.const 50) (i32.const 0) (i32.const 60) (i32.const 160))
@@ -294,6 +299,7 @@
   (local $dx     i32) ;; donkey x-coord (found)
   (local $dy     i32) ;; donkey y-coord (given)
   (local $dr     i32) ;; donkey road    (given)
+  (local $chunk  i32) ;; fooooobarrrrr
 
   ;; swapin custom DRAW_COLORS
   (call $draw-swap (i32.const 0x6))
@@ -304,10 +310,16 @@
                            (i32.mul (local.get $index) (i32.const 2))
                            (global.get $DONKEY_DATA)))
 
-      (local.set $dy (i32.load8_u (local.get $mpoint)))
-      (local.set $dr (i32.load8_u (i32.add (local.get $mpoint) (i32.const 1))))
 
-      (i32.and (i32.eqz (local.get $dr)) (i32.eqz (local.get $dy)))
+      (local.set $chunk (i32.load16_u (local.get $mpoint)))
+
+      (local.set $dy (i32.and (local.get $chunk) (i32.const 0x00FF)))
+      (local.set $dr (i32.and (local.get $chunk) (i32.const 0xFF00)))
+
+      ;;(local.set $dy (i32.load8_u (local.get $mpoint)))
+      ;;(local.set $dr (i32.load8_u (i32.add (local.get $mpoint) (i32.const 1))))
+
+      (i32.eqz (local.get $dr))
       br_if $cont
 
       (i32.eq (local.get $dr) (i32.const 1))
