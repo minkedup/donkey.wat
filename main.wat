@@ -91,11 +91,10 @@
 (global $SPEED_MULT   (mut f32) (f32.const 1.00))
 
 (; Number of donkeys that currently exist ;)
-;; TODO: Replace after test
-(global $NUM_DONKEYS    (mut i32) (i32.const 1))
+(global $NUM_DONKEYS    (mut i32) (i32.const 0))
 
-(; Rough position of last-allocated donkey ;)
-(global $LDONKEY_LOC    (mut i32) (i32.const 0))
+(; A counter since the last donkey was allocated ;)
+(global $LAST_ALLOCED    (mut i32) (i32.const 0))
 
 (; Counter for road drawing offset from origin ;)
 (global $ROAD_OFFSET    (mut i32) (i32.const 0))
@@ -118,7 +117,7 @@
      A pair is considered empty if road == 0x00.
 ;)
 (global $DONKEY_DATA i32 (i32.const 0x19d0))
-(data (i32.const 0x19d0) "\00\02\00\00\00\00\00\00")
+(data (i32.const 0x19d0) "\00\00\00\00\00\00\00\00")
 
 (; Static Display Strings ;)
 (data (i32.const 0x19a0) "Driver\00")
@@ -344,10 +343,8 @@
   (local $donr   i32)
   (local $drivy  i32)
 
-  ;; TODO: Consider optimizing by removing calls to ran-int when
-  ;;       allocations may not actually happen.
   ;; attempt to allocate a new donkey with random generated value
-  (call $alloc-donkey (call $ran-int (i32.const 1) (i32.const 2)))
+  (call $alloc-donkey)
 
   ;; drivy = 120 + ( DRIVER_PROG * 8 )
   (local.set $drivy (i32.sub
@@ -372,7 +369,7 @@
       (local.set $dony (i32.load8_u (local.get $mpoint)))
 
       ;; if( donkey-y > 150 ) : remove-from-screen && increase-player-progress
-      (i32.ge_u (local.get $dony) (i32.const 150))
+      (i32.ge_u (local.get $dony) (i32.const 140))
       if
         ;; SPEED_MULT += 0.05
         (global.set $SPEED_MULT (f32.add (global.get $SPEED_MULT) (f32.const 0.05)))
@@ -426,7 +423,7 @@
         (global.set $SPEED_MULT    (f32.const 1.0))
 
         ;; zeroes out all DONKEY_DATA
-        (i32.store (global.get $DONKEY_DATA) (i32.const 0))
+        (call $zero-ddata)
 
         ;; we no longer have any donkeys to update; any more computation
         ;; would be wasted here
@@ -455,15 +452,23 @@
   )
 )
 
-(func $alloc-donkey (param $road i32)
-  (local $addr  i32) ;; search pointer
-  (local $mmem  i32) ;; max memory
+;; TODO: Figure out why this works...
+(func $zero-ddata
+  (local $addr i32)
 
-  ;; if ( NUM_DONKEYS > MAX_DONKEYS ) : return
-  (i32.gt_u (global.get $NUM_DONKEYS) (global.get $MAX_DONKEYS))
-  if
-    return
-  end
+  (local.set $addr (global.get $DONKEY_DATA))
+
+  (loop $zero
+    (i32.store16 (local.get $addr) (i32.const 0))
+
+    (local.set $addr (i32.add (local.get $addr) (i32.const 2)))
+    (i32.lt_u (local.get $addr) (global.get $DDATA_MAXMEM))
+    br_if $zero
+  )
+)
+
+(func $alloc-donkey
+  (local $addr i32) ;; search pointer
 
   ;; delta = ( SPEED_MULT * 10.00 )
   global.get $SPEED_MULT
@@ -471,28 +476,28 @@
   f32.mul
   i32.trunc_f32_u
 
-  ;; LDONKEY_LOC += delta
-  global.get $LDONKEY_LOC
+  ;; LAST_ALLOCED += delta
+  global.get $LAST_ALLOCED
   i32.add
-  global.set $LDONKEY_LOC
+  global.set $LAST_ALLOCED
 
-  ;; if( LDONKEY_LOC < 14 ) : return
-  ;; else : LDONKEY_LOC = 0
-  (i32.le_u (global.get $LDONKEY_LOC) (i32.const 77))
+  ;; if( LAST_ALLOCED < 14 ) ? return : LAST_ALLOCED = 0
+  (i32.le_u (global.get $LAST_ALLOCED) (i32.const 77))
   if
     return
-  else
-    i32.const 0
-    global.set $LDONKEY_LOC
   end
 
-  ;; search ptr starts at first addr
-  (local.set $addr (global.get $DONKEY_DATA))
+  ;; LAST_ALLOCED = 0 // we're doing an allocation now
+  (global.set $LAST_ALLOCED (i32.const 0))
 
-  ;; max memory
-  (local.set $mmem (i32.add
-                     (i32.mul (global.get $MAX_DONKEYS) (i32.const 2))
-                     (global.get $DONKEY_DATA)))
+  ;; if ( NUM_DONKEYS > MAX_DONKEYS ) : return
+  (i32.gt_u (global.get $NUM_DONKEYS) (global.get $MAX_DONKEYS))
+  if
+    return
+  end
+
+  ;; set search ptr to the start address
+  (local.set $addr (global.get $DONKEY_DATA))
 
   (block $break
     (loop $faddr
@@ -504,15 +509,17 @@
 
       ;; while( addr < max-mem ) : addr += 2
       (local.set $addr (i32.add (local.get $addr) (i32.const 2)))
-      (i32.lt_u (local.get $addr) (local.get $mmem))
+      (i32.lt_u (local.get $addr) (global.get $DDATA_MAXMEM))
       br_if $faddr
     )
   )
 
   ;; starting donkey-y = 0x00
   (i32.store8 (local.get $addr) (i32.const 0x00))
-  ;; starting donkey-r = 0x01
-  (i32.store8 (i32.add (local.get $addr) (i32.const 1)) (local.get $road))
+  ;; starting donkey-r = ran-int(1, 2)
+  (i32.store8
+    (i32.add (local.get $addr) (i32.const 1))
+    (call $ran-int (i32.const 1) (i32.const 2)))
 
   ;; NUM_DONKEYS++
   (global.set $NUM_DONKEYS (i32.add
@@ -533,8 +540,8 @@
   ;; s[0] = ROAD_OFFSET + ( SPEED_MULT * 1.25 )
   i32.add
 
-  ;; ROAD_OFFSET = s[0] % 18
-  i32.const 18
+  ;; ROAD_OFFSET = s[0] % 19
+  i32.const 19
   i32.rem_u
   global.set $ROAD_OFFSET
 )
