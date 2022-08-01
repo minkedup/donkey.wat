@@ -54,59 +54,59 @@
 ;;==================;;
 
 (; Address of to-decstr string ;)
-(global $DCADDR i32 (i32.const 0x2100))
+(global $DCADDR        i32 (i32.const 0x19c1))
 
 (; Max strlen for to-decstr ;)
-(global $PVMAXL i32 (i32.const 8))
+(global $PVMAXL        i32 (i32.const 8))
 
 (; Maximum number of donkeys allowed on screen at a time ;)
-(global $MAX_DONKEYS    i32 (i32.const 8))
+(global $MAX_DONKEYS   i32 (i32.const 8))
 
-(; Last memory location of the DONKEY_DATA; set at start, not modified after ;)
-(global $DDATA_MAXMEM   (mut i32) (i32.const 0))
+(; Last memory location of the DONKEY_DATA; set at start ;)
+(global $DDATA_MAXMEM (mut i32) (i32.const 0))
 
-(; RNG Constants; see LGC Algorithm on Wikipedia ;)
-(global $A-RAND   i32 (i32.const 0x43FD43FD))
-(global $C-RAND   i32 (i32.const 0xC39EC3))
-(global $M-RAND   i32 (i32.const 16_777_216))
+(; glibc RNG constants; see LGC Algorithm on Wikipedia ;)
+(global $A-RAND   i32 (i32.const 0x41C64E6D))
+(global $C-RAND   i32 (i32.const    0x12345))
+(global $M-RAND   i32 (i32.const 0x80000000))
 
 ;;=================;;
 ;; Global Counters ;;
 ;;=================;;
 
 (; Driver & Donkey score counters ;)
-(global $DRIVER_SCORE (mut i32) (i32.const 0))
-(global $DONKEY_SCORE (mut i32) (i32.const 0))
+(global $DRIVER_SCORE  (mut i32) (i32.const 0))
+(global $DONKEY_SCORE  (mut i32) (i32.const 0))
 
 (; Side of the road the driver is on ;)
-(global $DRIVER_ROAD (mut i32) (i32.const 1))
+(global $DRIVER_ROAD   (mut i32) (i32.const 1))
 
 (; Driver Progress - Used to derive Driver ypos ;)
-(global $DRIVER_PROG (mut i32) (i32.const 0))
+(global $DRIVER_PROG   (mut i32) (i32.const 0))
 
 (; Counts number of frames since game start ;)
-(global $FCOUNT       (mut i32) (i32.const 0))
+(global $FCOUNT        (mut i32) (i32.const 0))
 
 (; Global game speed multiplier ;)
-(global $SPEED_MULT   (mut f32) (f32.const 1.00))
+(global $SPEED_MULT    (mut f32) (f32.const 1.00))
 
 (; Number of donkeys that currently exist ;)
-(global $NUM_DONKEYS    (mut i32) (i32.const 0))
+(global $NUM_DONKEYS   (mut i32) (i32.const 0))
 
 (; A counter since the last donkey was allocated ;)
-(global $LAST_ALLOCED    (mut i32) (i32.const 0))
+(global $LAST_ALLOCED  (mut i32) (i32.const 0))
 
 (; Counter for road drawing offset from origin ;)
-(global $ROAD_OFFSET    (mut i32) (i32.const 0))
+(global $ROAD_OFFSET   (mut i32) (i32.const 0))
 
-(; Starting random seed; modifiable by ran func ;)
-(global $RSEED    (mut i32) (i32.const 22345512))
+(; Starting random seed; modified by ran function ;)
+(global $RSEED         (mut i32) (i32.const 2060202438))
 
 (; DRAW_COLORS cache; used for swapping temp vals in ;)
-(global $DRAW_COLORS_CACHE (mut i32) (i32.const 0))
+(global $DRAW_CACHE    (mut i32) (i32.const 0))
 
 (; Previous GAMEPAD state ;)
-(global $PREV_GAMEPAD (mut i32) (i32.const 0))
+(global $PREV_GAMEPAD  (mut i32) (i32.const 0))
 
 ;;===========;;
 ;; Heap Data ;;
@@ -116,16 +116,16 @@
      Stored as pairs of u8s representing (y-pos, road).
      A pair is considered empty if road == 0x00.
 ;)
-(global $DONKEY_DATA i32 (i32.const 0x19d0))
-(data (i32.const 0x19d0) "\00\00\00\00\00\00\00\00")
+(global $DONKEY_DATA i32 (i32.const 0x1ae2))
+(data (i32.const 0x19da) "\00\00\00\00\00\00\00\00")
 
 (; Static Display Strings ;)
 (data (i32.const 0x19a0) "Driver\00")
-(data (i32.const 0x19a9) "Donkey\00")
-(data (i32.const 0x19b0) " X to\nswitch\nlanes\00")
+(data (i32.const 0x19a7) "Donkey\00")
+(data (i32.const 0x19ae) " X to\nswitch\nlanes\00")
 
 (; Data for to-decstr; address at DCADDR ;)
-(data (i32.const 0x2100) "                    \00")
+(data (i32.const 0x19c1) "\00\00\00\00\00\00\00\00\00")
 
 ;;=============;;
 ;; Sprite Data ;;
@@ -133,14 +133,13 @@
 
 ;; donkey ( width: 24, height: 20, flags: BLIT_2BPP )
 (data
-  (i32.const 0x2000)
+  (i32.const 0x19ca)
   "\ff\ff\ff\ff\0f\fc\ff\ff\ff\ff\03\00\ff\ff\ff\ff\c0\03\ff\ff\ff\ff\c0\01\ff\00\00\00\0a\28\fc\00\00\00\00\00\fc\00\00\00\00\00\f0\00\00\00\00\03\f0\00\00\00\03\03\c3\00\00\00\03\c0\1f\00\00\00\0f\f0\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\0c\3f\c3\0f\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff\ff"
 )
 
 ;; car ( width: 20, height: 32, flags: BLIT_2BPP )
-;; TODO: Fix this car sprite from source
 (data
-  (i32.const 0x2080)
+  (i32.const 0x1a42)
   "\aa\aa\00\aa\aa\aa\aa\00\aa\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\a0\a0\00\0a\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\a0\00\0a\0a\aa\a0\00\0a\aa\aa\a0\14\0a\aa\aa\a0\55\0a\aa\aa\a0\41\0a\aa\aa\a1\41\4a\aa\aa\a1\00\4a\aa\aa\a1\41\4a\aa\00\a0\55\0a\00\00\a0\00\0a\00\00\a0\00\0a\00\00\a1\55\4a\00\00\81\14\42\00\00\81\14\42\00\00\a1\55\4a\00\00\a1\14\4a\00\00\a1\14\4a\00\aa\a1\55\4a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\aa\a8\00\2a\aa"
 )
 
@@ -204,9 +203,9 @@
   (local.set $rspace (i32.const -20))
 
   ;; draw static intructions and scoreboard headers
-  (call $text (i32.const 0x19b0) (i32.const 111) (i32.const 120))
-  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 018))
-  (call $text (i32.const 0x19a9) (i32.const 111) (i32.const 018))
+  (call $text (i32.const 0x19ae) (i32.const 111) (i32.const 120)) ;; switch
+  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 018)) ;; driver
+  (call $text (i32.const 0x19a7) (i32.const 111) (i32.const 018)) ;; donkey
 
   ;; convert to string, then draw DRIVER_SCORE
   (call $to-decstr (global.get $DRIVER_SCORE) (i32.const 2))
@@ -280,7 +279,7 @@
         (local.set $dx (i32.const 83))
       end
 
-      (call $blit (i32.const 0x2000)
+      (call $blit (i32.const 0x19ca)
             (local.get $dx)
             (local.get $dy)
             (i32.const 24)
@@ -319,7 +318,7 @@
   ;; swapon custom DRAW_COLORS
   (call $draw-swap (i32.const 6))
 
-  (call $blit (i32.const 0x2080)
+  (call $blit (i32.const 0x1a42)
         (local.get $dx)
         (local.get $dy)
         (i32.const 20)
@@ -546,19 +545,19 @@
   global.set $ROAD_OFFSET
 )
 
-;; swap current value off DRAW_COLORS and onto DRAW_COLORS_CACHE
+;; swap current value off DRAW_COLORS and onto DRAW_CACHE
 (func $draw-swap (param $new i32)
-  ;; prevent double swap by making sure DRAW_COLORS_CACHE is uninit (0x0000)
-  (if (i32.ne (global.get $DRAW_COLORS_CACHE) (i32.const 0x0000)) (then return))
-  (global.set $DRAW_COLORS_CACHE (i32.load16_u (global.get $DRAW_COLORS)))
+  ;; prevent double swap by making sure DRAW_CACHE is uninit (0x0000)
+  (if (i32.ne (global.get $DRAW_CACHE) (i32.const 0x0000)) (then return))
+  (global.set $DRAW_CACHE (i32.load16_u (global.get $DRAW_COLORS)))
   (i32.store16 (global.get $DRAW_COLORS) (local.get $new))
 )
 
-;; swap value in DRAW_COLORS_CACHE back into DRAW_COLORS
+;; swap value in DRAW_CACHE back into DRAW_COLORS
 (func $draw-reset
-  (i32.store16 (global.get $DRAW_COLORS) (global.get $DRAW_COLORS_CACHE))
-  ;; re-uninit DRAW_COLORS_CACHE for future writes
-  (global.set $DRAW_COLORS_CACHE (i32.const 0x0000))
+  (i32.store16 (global.get $DRAW_COLORS) (global.get $DRAW_CACHE))
+  ;; re-uninit DRAW_CACHE for future writes
+  (global.set $DRAW_CACHE (i32.const 0x0000))
 )
 
 (func $to-decstr (param $val i32) (param $strlen i32)
@@ -622,58 +621,54 @@
   ))
 )
 
-;; lgc rng
 (func $ran (result i32)
-  ;; a * seed
+  (;
+   LGC Algorithm implementation; this implementation uses glibc's constants for
+   the a (multiplier), c (increment), and m (modulus) values. This alogrithm
+   leaves bits 30..0 as output, so we need to run the algorithm twice packing
+   the random bits into the correct place each time. The formula formalized:
+
+   seed = ((a * seed) + c) % m
+
+   The algorithm is successively run twice, with the result being stored onto
+   stack before being manipulated.
+  ;)
+
+  ;; (a * seed + c) % m
   global.get $RSEED
   global.get $A-RAND
   i32.mul
-
-  ;; (a * seed) + c
   global.get $C-RAND
   i32.add
-
-  ;; (a * seed + c) % m
   global.get $M-RAND
   i32.rem_u
 
-  ;; set RSEED and return it
+  ;; populate bits 32..2 of
+  i32.const 2
+  i32.shl
+
+  ;; (a * seed + c) % m
+  global.get $RSEED
+  global.get $A-RAND
+  i32.mul
+  global.get $C-RAND
+  i32.add
+  global.get $M-RAND
+  i32.rem_u
+
+  ;; extract and store last two bits
+  i32.const 0x3
+  i32.and
+  i32.or
+
+  ;; store new seed value
   global.set $RSEED
   global.get $RSEED
 )
 
 (func $ran-int (param $low i32) (param $high i32) (result i32)
-  (;
-   We run the LGC algorithm random number generator three times.
-   The random function only outputs random bits betwen; 30 and 16,
-   so we call the function three times, packing the random bits
-   into a single number to be used for the rest of the function.
-  ;)
   ;; s[0] = ran()
   call $ran
-  i32.const 0x3FFF0000
-  i32.and
-  ;; s[0] << 2
-  i32.const 2
-  i32.shl
-  ;; s[1] = ran()
-  call $ran
-  i32.const 0x3FFF0000
-  i32.and
-  ;; s[1] >> 12
-  i32.const 12
-  i32.shr_u
-  ;; s[0] = s[1] or s[0]
-  i32.or
-  ;; s[1] = ran()
-  call $ran
-  i32.const 0x3FFF0000
-  i32.and
-  ;; s[1] >> 26
-  i32.const 20
-  i32.shr_u
-  ;; s[0] = s[1] or s[0];
-  i32.or
 
   ;; s[1] = (high + 1)
   local.get $high
