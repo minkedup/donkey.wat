@@ -62,6 +62,9 @@
 (; Maximum number of donkeys allowed on screen at a time ;)
 (global $MAX_DONKEYS    i32 (i32.const 8))
 
+(; Last memory location of the DONKEY_DATA; set at start, not modified after ;)
+(global $DDATA_MAXMEM   (mut i32) (i32.const 0))
+
 (; RNG Constants; see LGC Algorithm on Wikipedia ;)
 (global $A-RAND   i32 (i32.const 0x43FD43FD))
 (global $C-RAND   i32 (i32.const 0xC39EC3))
@@ -122,10 +125,8 @@
 (data (i32.const 0x19a9) "Donkey\00")
 (data (i32.const 0x19b0) " X to\nswitch\nlanes\00")
 
-(data (i32.const 0x2100) "        \00")
-
 (; Data for to-decstr; address at DCADDR ;)
-(data (i32.const 0x2100) "        \00")
+(data (i32.const 0x2100) "                    \00")
 
 ;;=============;;
 ;; Sprite Data ;;
@@ -145,6 +146,9 @@
 )
 
 (func (export "start")
+  (global.set $DDATA_MAXMEM (i32.add
+                             (global.get $DONKEY_DATA)
+                             (i32.mul (global.get $MAX_DONKEYS) (i32.const 2))))
 )
 
 (func (export "update")
@@ -242,37 +246,34 @@
 )
 
 (func $draw-donkey
-  (local $index  i32)
   (local $mpoint i32)
   (local $dx     i32) ;; donkey x-coord (found)
   (local $dy     i32) ;; donkey y-coord (given)
   (local $dr     i32) ;; donkey road    (given)
-  (local $chunk  i32) ;; fooooobarrrrr
+  (local $chunk  i32) ;; donkey tuple   (given)
 
   ;; swapin custom DRAW_COLORS
   (call $draw-swap (i32.const 0x6))
 
+  ;; set start of pointer at start of data
+  (local.set $mpoint (global.get $DONKEY_DATA))
+
   (loop $draw
     (block $cont
-      (local.set $mpoint (i32.add
-                           (i32.mul (local.get $index) (i32.const 2))
-                           (global.get $DONKEY_DATA)))
-
-
+      ;; do one read of current chunk
       (local.set $chunk (i32.load16_u (local.get $mpoint)))
 
-      (call $to-decstr (local.get $chunk) (i32.const 2))
-      (call $trace (global.get $DCADDR))
-
+      ;; extract first and last 8 bit values
       (local.set $dy (i32.and (local.get $chunk) (i32.const 0x00FF)))
-      (local.set $dr (i32.and (local.get $chunk) (i32.const 0xFF00)))
+      (local.set $dr (i32.shr_u
+                      (i32.and (local.get $chunk) (i32.const 0xFF00))
+                      (i32.const 8)))
 
-      (local.set $dy (i32.load8_u (local.get $mpoint)))
-      (local.set $dr (i32.load8_u (i32.add (local.get $mpoint) (i32.const 1))))
-
+      ;; skip uninitialized chunk
       (i32.eqz (local.get $dr))
       br_if $cont
 
+      ;; set dx dependent on road side
       (i32.eq (local.get $dr) (i32.const 1))
       if
         (local.set $dx (i32.const 52))
@@ -288,12 +289,9 @@
             (global.get $BLIT_2BPP))
     )
 
-    ;; TODO: Remove skip
-    (call $draw_reset)
-    return
-
-    (local.set $index (i32.add (local.get $index) (i32.const 1)))
-    (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
+    ;; while( mpoint < MAX_MEM )
+    (local.set $mpoint (i32.add (local.get $mpoint) (i32.const 2)))
+    (i32.lt_u (local.get $mpoint) (global.get $DDATA_MAXMEM))
     br_if $draw
   )
 
@@ -341,112 +339,120 @@
 )
 
 (func $update-donkeys
-  (local $index  i32)
   (local $mpoint i32)
   (local $dony   i32)
   (local $donr   i32)
   (local $drivy  i32)
 
-  ;;(call $alloc-donkey (call $ran-int (i32.const 1) (i32.const 2)))
+  ;; TODO: Consider optimizing by removing calls to ran-int when
+  ;;       allocations may not actually happen.
+  ;; attempt to allocate a new donkey with random generated value
+  (call $alloc-donkey (call $ran-int (i32.const 1) (i32.const 2)))
 
   ;; drivy = 120 + ( DRIVER_PROG * 8 )
   (local.set $drivy (i32.sub
                    (i32.const 120)
                    (i32.mul (global.get $DRIVER_PROG) (i32.const 8))))
 
-  (local.set $index (i32.const 0))
+  ;; start mem location at DONKEY_DATA
+  (local.set $mpoint (global.get $DONKEY_DATA))
 
-  (block $break
-    (loop $upd
-      (block $cont
-        (local.set $mpoint (i32.add
-                            (i32.mul (local.get $index) (i32.const 2))
-                            (global.get $DONKEY_DATA)))
+  (loop $upd
+    (block $cont
+      ;; load road side to check for initialization
+      (local.set $donr (i32.load8_u (i32.add
+                                      (local.get $mpoint)
+                                      (i32.const 1))))
 
-        (local.set $dony (i32.load8_u (local.get $mpoint)))
-        (local.set $donr (i32.load8_u (i32.add
-                                        (local.get $mpoint)
-                                        (i32.const 1))))
+      ;; continue if chunk uninitialized
+      (i32.eqz (local.get $donr))
+      br_if $cont
 
-        ;; check that this memory location is a donkey and not empty
-        (i32.and (i32.eqz (local.get $donr)) (i32.eqz (local.get $donr)))
-        br_if $cont
+      ;; load y after check to avoid mem read before needed
+      (local.set $dony (i32.load8_u (local.get $mpoint)))
 
-        ;; update donkey y value
-        global.get $SPEED_MULT
-        f32.const 8.00
-        f32.mul
-        i32.trunc_f32_u
+      ;; if( donkey-y > 150 ) : remove-from-screen && increase-player-progress
+      (i32.ge_u (local.get $dony) (i32.const 150))
+      if
+        ;; SPEED_MULT += 0.05
+        (global.set $SPEED_MULT (f32.add (global.get $SPEED_MULT) (f32.const 0.05)))
 
-        local.get $dony
-        i32.add
-        local.set $dony
+        ;; DRIVER_SCORE += 1
+        (global.set $DRIVER_SCORE (i32.add (global.get $DRIVER_SCORE) (i32.const 1)))
 
-        ;; remove donkey if off-screen and update scores
-        (i32.ge_u (local.get $dony) (i32.const 150))
-        if
-          ;;; increase the speed multiplier
-          (global.set $SPEED_MULT (f32.add
-                                    (global.get $SPEED_MULT)
-                                    (f32.const 0.05)))
+        ;; DRIVER_PROGRESS += 1
+        (global.set $DRIVER_PROG (i32.add (global.get $DRIVER_PROG) (i32.const 1)))
 
-          ;; increase the driver score
-          (global.set $DRIVER_SCORE (i32.add
-                                      (global.get $DRIVER_SCORE)
-                                      (i32.const 1)))
+        ;; store 0 in road to mark current donkey as uninitialized
+        (i32.store8 (i32.add (local.get $mpoint) (i32.const 1)) (i32.const 0))
 
-          ;; increase driver progress
-          (global.set $DRIVER_PROG (i32.add (global.get $DRIVER_PROG) (i32.const 1)))
+        ;; NUM_DONKEYS -= 1
+        (global.set $NUM_DONKEYS (i32.sub (global.get $NUM_DONKEYS) (i32.const 1)))
 
-          ;; zero out donkey memory
-          (i32.store16 (local.get $mpoint) (i32.const 0x0000))
-          ;; NUM_DONKEYS--
-          (global.set $NUM_DONKEYS (i32.sub
-                                     (global.get $NUM_DONKEYS)
-                                     (i32.const 1)))
-          ;; skip updating
-          br $cont
-        end
+        ;; skip processing this donkey
+        br $cont
+      end
 
-        (block $collision
-          ;; if ( donkey_road != driver_road ) : continue
-          (i32.ne (local.get $donr) (global.get $DRIVER_ROAD))
-          br_if $collision
+      ;; process player collision with a donkey. responsible for resetting the
+      ;; game to its starting values.
+      (block $collision
+        ;; if ( donkey_road != driver_road ) : continue
+        (i32.ne (local.get $donr) (global.get $DRIVER_ROAD))
+        br_if $collision
 
-          ;; ! ( (donkey_y + (donkey_size / 2))  >= driver_y ) && ( donkey_y <= (driver_y + driver_size) )
-          (i32.and
-            (i32.ge_u (i32.add (local.get $dony) (i32.const 10)) (local.get $drivy))
-            (i32.le_u (local.get $dony) (i32.add (local.get $drivy) (i32.const 32)))
-          )
-          i32.const 1
-          i32.xor
-          br_if $collision
-
-          (global.set $DONKEY_SCORE (i32.add (global.get $DONKEY_SCORE) (i32.const 1)))
-
-          (call $reset-game)
-
-          br $break
+        ;;  if ( ( (donkey-y + 19) >= driver-y ) && \
+        ;;       ( donkey-y <= (driver-y + 32) ) ) : hit!
+        (i32.and
+          (i32.ge_u (i32.add (local.get $dony) (i32.const 19)) (local.get $drivy))
+          (i32.le_u (local.get $dony) (i32.add (local.get $drivy) (i32.const 32)))
         )
+        i32.const 1
+        i32.xor
+        br_if $collision
 
-        ;; store updated donkey y back into donkey
-        (i32.store8 (local.get $mpoint) (local.get $dony))
+        ;; store 0 in road to mark current donkey as uninitialized
+        (i32.store8 (i32.add (local.get $mpoint) (i32.const 1)) (i32.const 0))
+
+        ;; DONKEY_SCORE += 1
+        (global.set $DONKEY_SCORE (i32.add (global.get $DONKEY_SCORE) (i32.const 1)))
+
+        ;; NUM_DONKEYS = 0
+        (global.set $NUM_DONKEYS   (i32.const 0))
+
+        ;; DRIVER_PROG = 0
+        (global.set $DRIVER_PROG   (i32.const 0))
+
+        ;; SPEED_MULT = [BASE_SPEED_MULT]
+        (global.set $SPEED_MULT    (f32.const 1.0))
+
+        ;; zeroes out all DONKEY_DATA
+        (i32.store (global.get $DONKEY_DATA) (i32.const 0))
+
+        ;; we no longer have any donkeys to update; any more computation
+        ;; would be wasted here
+        return
       )
 
-      (local.set $index (i32.add (local.get $index) (i32.const 1)))
-      (i32.lt_u (local.get $index) (global.get $MAX_DONKEYS))
-      br_if $upd
+      ;; dv = ( SPEED_MULT * 8.00 )
+      global.get $SPEED_MULT
+      f32.const 8.00
+      f32.mul
+      i32.trunc_f32_u
+
+      ;; dony += dv
+      local.get $dony
+      i32.add
+      local.set $dony
+
+      ;; store donkey-y in the correct place
+      (i32.store8 (local.get $mpoint) (local.get $dony))
     )
+
+    ;; while( mem-pointer < MAX_MEM ) : mpoint += 2
+    (local.set $mpoint (i32.add (local.get $mpoint) (i32.const 2)))
+    (i32.lt_u (local.get $mpoint) (global.get $DDATA_MAXMEM))
+    br_if $upd
   )
-)
-
-(func $reset-game
-  ;; reset everything
-  (global.set $NUM_DONKEYS   (i32.const 0))
-  (global.set $DRIVER_PROG   (i32.const 0))
-  (global.set $SPEED_MULT    (f32.const 1.0))
-
-  (i32.store (global.get $DONKEY_DATA) (i32.const 0))
 )
 
 (func $alloc-donkey (param $road i32)
