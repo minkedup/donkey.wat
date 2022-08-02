@@ -7,6 +7,7 @@
 
 (; Sprite-drawing function ;)
 (import "env" "blit" (func $blit (param i32 i32 i32 i32 i32 i32)))
+(import "env" "blitSub" (func $blitsub (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
 
 (; Basic shape drawing functions ;)
 (import "env" "line" (func $line (param i32 i32 i32 i32)))
@@ -53,11 +54,14 @@
 ;; Global Constants ;;
 ;;==================;;
 
-(; Address of to-decstr string ;)
-(global $DCADDR        i32 (i32.const 0x19c1))
+(; Address of character sprite ;)
+(global $CHAR_DATA     i32 (i32.const 0x2000))
 
-(; Max strlen for to-decstr ;)
-(global $PVMAXL        i32 (i32.const 8))
+(; Max string length for cstr ;)
+(global $CSTR_MAXLEN   i32 (i32.const 7))
+
+(; Address of cstr function output ;)
+(global $CSTR_ADDR     i32 (i32.const 0x2100))
 
 (; Maximum number of donkeys allowed on screen at a time ;)
 (global $MAX_DONKEYS   i32 (i32.const 8))
@@ -68,7 +72,7 @@
 (; glibc RNG constants; see LGC Algorithm on Wikipedia ;)
 (global $M-RAND   i32 (i32.const   2_147_483_648)) ;; 2^31
 (global $A-RAND   i32 (i32.const   1103515245))
-(global $C-RAND   i32 (i32.const   12345)) 
+(global $C-RAND   i32 (i32.const   12345))
 
 ;;=================;;
 ;; Global Counters ;;
@@ -122,10 +126,10 @@
 (; Static Display Strings ;)
 (data (i32.const 0x19a0) "Driver\00")
 (data (i32.const 0x19a7) "Donkey\00")
-(data (i32.const 0x19ae) " X to\nswitch\nlanes\00")
+(data (i32.const 0x19ae) "X\24to\25switch\25lanes\00")
 
-(; Data for to-decstr; address at DCADDR ;)
-(data (i32.const 0x19c1) "\00\00\00\00\00\00\00\00\00")
+(; Data for cstr conversion function ;)
+(data (i32.const 0x2100) "\00\00\00\00\00\00\00\00\00")
 
 ;;=============;;
 ;; Sprite Data ;;
@@ -143,6 +147,13 @@
   "\aa\aa\00\aa\aa\aa\aa\00\aa\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a8\00\2a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\a0\a0\00\0a\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\80\00\02\0a\a0\a0\00\0a\0a\aa\a0\00\0a\aa\aa\a0\14\0a\aa\aa\a0\55\0a\aa\aa\a0\41\0a\aa\aa\a1\41\4a\aa\aa\a1\00\4a\aa\aa\a1\41\4a\aa\00\a0\55\0a\00\00\a0\00\0a\00\00\a0\00\0a\00\00\a1\55\4a\00\00\81\14\42\00\00\81\14\42\00\00\a1\55\4a\00\00\a1\14\4a\00\00\a1\14\4a\00\aa\a1\55\4a\aa\aa\a0\00\0a\aa\aa\a0\00\0a\aa\aa\a8\00\2a\aa"
 )
 
+;; charset ( width: 216, height: 6, flags: BLIT_1BPP )
+(data
+  (i32.const 0x2000)
+  "\7b\e7\be\ff\f7\a3\78\fc\f0\8e\37\be\7b\e7\bf\8e\38\e3\cf\f7\8c\7b\e7\be\7b\f7\9e\9f\3c\e7\c3\0c\e3\30\6d\b0\df\3c\f3\c7\3c\0c\8e\38\d6\cc\7c\dc\9c\7d\b0\c0\39\e7\9f\ec\27\fb\0c\3f\30\6f\30\ff\bc\f3\c7\37\8c\8e\3a\cc\78\ec\cc\1d\e9\be\f8\67\a7\ff\3c\27\c3\ed\e3\33\6f\30\ae\fc\fe\d7\e1\cc\8e\3f\dc\31\cc\cc\78\79\87\cc\c9\df\9f\3c\e7\c3\0c\e3\33\6d\b0\8e\7c\f0\cb\49\cc\9d\6d\f2\33\8c\cc\e0\7f\e7\cd\c9\c7\9f\e7\be\ff\07\e3\79\cc\ff\8e\37\b0\77\37\8c\78\c8\e1\33\f7\9e\ff\e1\9e\79\c7\9e"
+)
+
+
 (func (export "start")
   (global.set $DDATA_MAXMEM (i32.add
                              (global.get $DONKEY_DATA)
@@ -153,7 +164,7 @@
   (global.set $FCOUNT (i32.add (global.get $FCOUNT) (i32.const 1)))
 
   ;; handle player input
-  (call $pinput)
+  (call $handle-input)
 
   ;; run position update logic every ( FRAME % 15 )
   (if (i32.eqz (i32.rem_u (global.get $FCOUNT) (i32.const 15)))
@@ -171,7 +182,7 @@
   (call $draw-driver)
 )
 
-(func $pinput
+(func $handle-input
   (local $gamepad i32)
   (local $pressed i32)
 
@@ -203,22 +214,21 @@
   ;; overdraw above to account for movement
   (local.set $rspace (i32.const -20))
 
-
   ;; set DRAW_COLORS for text
-  (call $draw-swap (i32.const 0x3e)) 
+  (call $draw-swap (i32.const 0x3e))
 
   ;; draw static intructions and scoreboard headers
-  (call $text (i32.const 0x19ae) (i32.const 111) (i32.const 120)) ;; switch
-  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 038)) ;; driver
-  (call $text (i32.const 0x19a7) (i32.const 111) (i32.const 038)) ;; donkey
+  (call $ctext (i32.const 0x19ae) (i32.const 111) (i32.const 120)) ;; switch
+  (call $ctext (i32.const 0x19a0) (i32.const 003) (i32.const 038)) ;; driver
+  (call $ctext (i32.const 0x19a7) (i32.const 114) (i32.const 038)) ;; donkey
 
   ;; convert to string, then draw DRIVER_SCORE
-  (call $to-decstr (global.get $DRIVER_SCORE) (i32.const 2))
-  (call $text (global.get $DCADDR) (i32.const 016) (i32.const 050))
+  (call $cstr (global.get $DRIVER_SCORE) (i32.const 2))
+  (call $ctext (global.get $CSTR_ADDR) (i32.const 016) (i32.const 050))
 
   ;; convert to string, then draw DONKEY_SCORE
-  (call $to-decstr (global.get $DONKEY_SCORE) (i32.const 2))
-  (call $text (global.get $DCADDR) (i32.const 128) (i32.const 050))
+  (call $cstr (global.get $DONKEY_SCORE) (i32.const 2))
+  (call $ctext (global.get $CSTR_ADDR) (i32.const 128) (i32.const 050))
 
   ;; reset DRAW_COLORS for road
   (call $draw-reset)
@@ -228,13 +238,6 @@
 
   ;; swapon new DRAW_COLORS value for roads+stripes
   (call $draw-swap (i32.const 0x2))
-
-  (; 
-  (call $line (i32.const 000) (i32.const 000) (i32.const 159) (i32.const 000))
-  (call $line (i32.const 159) (i32.const 000) (i32.const 159) (i32.const 159))
-  (call $line (i32.const 159) (i32.const 159) (i32.const 000) (i32.const 159))
-  (call $line (i32.const 000) (i32.const 159) (i32.const 000) (i32.const 000))
-  ;)
 
   ;; draw 'yellow' lines on sides of the road
   (call $line (i32.const 052) (i32.const 0) (i32.const 052) (i32.const 160))
@@ -593,63 +596,145 @@
   (global.set $DRAW_CACHE (i32.const 0x0000))
 )
 
-(func $to-decstr (param $val i32) (param $strlen i32)
+;; draws an ASCII or custom formatted string to the screen
+(func $ctext (param $strptr i32) (param $x i32) (param $y i32)
+  (local $dchar  i32) ;; character to decode
+  (local $offset i32)
+  (local $ox     i32)
+
+  (local.set $ox (local.get $x))
+
+  (block $break (loop $draw
+    (block $cont
+      ;; load new value
+      (local.set $dchar (i32.load8_u (local.get $strptr)))
+
+      ;; break on null-termination
+      (i32.eqz (local.get $dchar))
+      br_if $break
+
+      ;; handle space case
+      (i32.eq (local.get $dchar) (i32.const 38))
+      if
+        ;; s[0] = DRAW_COLORS
+        (i32.load16_u (global.get $DRAW_COLORS))
+        (i32.store16 (global.get $DRAW_COLORS) (i32.const 0x2e))
+
+        ;; draw rect size of character
+        (call $rect
+              (local.get $x)
+              (local.get $y)
+              (i32.const 6)
+              (i32.const 6))
+
+        ;; restore DRAW_COLORS
+        (i32.store16 (global.get $DRAW_COLORS))
+
+        br $cont
+      end
+
+      ;; padding case
+      (i32.eq (local.get $dchar) (i32.const 0x24))
+      br_if $cont
+
+      ;; handle newline case
+      (i32.eq (local.get $dchar) (i32.const 0x25))
+      if
+        (local.set $x (i32.sub (local.get $ox) (i32.const 7))) ;; offset x+=7
+        (local.set $y (i32.add (local.get $y) (i32.const 7)))  ;; incr y
+        br $cont
+      end
+
+      ;; decode
+      (block $dec
+        (i32.ge_u (local.get $dchar) (i32.const 97))
+        if
+          (local.set $offset (i32.const 97))
+          br $dec
+        end
+
+        (i32.ge_u (local.get $dchar) (i32.const 65))
+        if
+          (local.set $offset (i32.const 65))
+          br $dec
+        end
+
+        (i32.ge_u (local.get $dchar) (i32.const 48))
+        if
+          (local.set $offset (i32.const 22))
+          br $dec
+        end
+
+        (local.set $offset (i32.const 0))
+      )
+      (local.set $dchar (i32.sub
+                          (local.get $dchar)
+                          (local.get $offset)))
+
+      ;;draw
+      (call $blitsub
+            (global.get $CHAR_DATA) ;; spriteptr
+            (local.get $x)          ;; x
+            (local.get $y)          ;; y
+            (i32.const 6)           ;; width
+            (i32.const 6)           ;; height
+            (i32.mul
+              (local.get $dchar)
+              (i32.const 6))        ;; srcx
+            (i32.const 0)           ;; srcy
+            (i32.const 216)         ;; stride
+            (global.get $BLIT_1BPP))
+
+    )
+
+    (local.set $x (i32.add (local.get $x) (i32.const 7))) ;; x+=6
+    (local.set $strptr (i32.add (local.get $strptr) (i32.const 1))) ;; strptr+=1
+
+    br $draw
+  ))
+)
+
+(func $cstr (param $num i32) (param $strlen i32)
   (local $index      i32)
-  (local $digit_char i32)
-  (local $digit_val  i32)
+  (local $digit-val  i32)
+  (local $digit-char i32)
 
-  (i32.gt_u (local.get $strlen) (global.get $PVMAXL))
-  if
-    (local.set $strlen (global.get $PVMAXL))
-  end
+  ;; bounds check strlen in an admittedly weird way
+  (local.set $strlen
+             (i32.rem_u (local.get $strlen)
+                        (global.get $CSTR_MAXLEN)))
 
-  local.get $strlen
-  local.set $index
 
-  (i32.eqz (local.get $val))
-  if
-    local.get $index
-    i32.const 1
-    i32.sub
-    local.set $index
-
-    (i32.store8 (i32.add (local.get $index) (global.get $DCADDR)) (i32.const 48))
-  end
+  (local.set $index (local.get $strlen))
 
   (loop $digit_loop (block $break
     (i32.eqz (local.get $index))
     br_if $break
 
-    local.get $val
-    i32.const 10
-    i32.rem_u
+    ;; digit-val = ( num % 10 )
+    (local.set $digit-val (i32.rem_u (local.get $num) (i32.const 10)))
 
-    local.set $digit_val
-
-    (i32.eqz (local.get $val))
+    ;; if ( num == 0 ) ? digit-char = 32 : digit-char = ( val + 25 )
+    (i32.eqz (local.get $num))
     if
-      i32.const 32
-      local.set $digit_char
+      ;; fill blank spaces with a 0 char
+      (local.set $digit-char (i32.const 26))
     else
-      local.get $digit_val
-      i32.const 48
-      i32.add
-
-      local.set $digit_char
+      ;; offset number into custom characters
+      (local.set $digit-char (i32.add
+                               (local.get $digit-val)
+                               (i32.const 26)))
     end
 
-    local.get $index
-    i32.const 1
-    i32.sub
-    local.set $index
-    ;; store
-    (i32.store8
-      (i32.add (global.get $DCADDR) (local.get $index)) (local.get $digit_char))
+    (local.set $index (i32.sub (local.get $index) (i32.const 1)))
 
-    local.get $val
-    i32.const 10
-    i32.div_u
-    local.set $val
+    ;; store char value intro string
+    (i32.store8
+      (i32.add (global.get $CSTR_ADDR) (local.get $index))
+      (local.get $digit-char))
+
+    ;; num = ( num / 10 )
+    (local.set $num (i32.div_u (local.get $num) (i32.const 10)))
     br $digit_loop
   ))
 )
@@ -687,7 +772,7 @@
   i32.rem_u
   global.set $RSEED
 
-  ;; fill in bits 2..0 
+  ;; fill in bits 2..0
   global.get $RSEED
   i32.const 28
   i32.shr_u
