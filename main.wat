@@ -66,9 +66,9 @@
 (global $DDATA_MAXMEM (mut i32) (i32.const 0))
 
 (; glibc RNG constants; see LGC Algorithm on Wikipedia ;)
-(global $A-RAND   i32 (i32.const 0x41C64E6D))
-(global $C-RAND   i32 (i32.const    0x12345))
-(global $M-RAND   i32 (i32.const 0x80000000))
+(global $M-RAND   i32 (i32.const   2_147_483_648)) ;; 2^31
+(global $A-RAND   i32 (i32.const   1103515245))
+(global $C-RAND   i32 (i32.const   12345)) 
 
 ;;=================;;
 ;; Global Counters ;;
@@ -100,7 +100,7 @@
 (global $ROAD_OFFSET   (mut i32) (i32.const 0))
 
 (; Starting random seed; modified by ran function ;)
-(global $RSEED         (mut i32) (i32.const 2060202438))
+(global $RSEED         (mut i32) (i32.const 123456789))
 
 (; DRAW_COLORS cache; used for swapping temp vals in ;)
 (global $DRAW_CACHE    (mut i32) (i32.const 0))
@@ -164,6 +164,7 @@
     )
   )
 
+
   ;; drawing logic
   (call $draw-static)
   (call $draw-donkey)
@@ -202,24 +203,42 @@
   ;; overdraw above to account for movement
   (local.set $rspace (i32.const -20))
 
+
+  ;; set DRAW_COLORS for text
+  (call $draw-swap (i32.const 0x3e)) 
+
   ;; draw static intructions and scoreboard headers
   (call $text (i32.const 0x19ae) (i32.const 111) (i32.const 120)) ;; switch
-  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 018)) ;; driver
-  (call $text (i32.const 0x19a7) (i32.const 111) (i32.const 018)) ;; donkey
+  (call $text (i32.const 0x19a0) (i32.const 001) (i32.const 038)) ;; driver
+  (call $text (i32.const 0x19a7) (i32.const 111) (i32.const 038)) ;; donkey
 
   ;; convert to string, then draw DRIVER_SCORE
   (call $to-decstr (global.get $DRIVER_SCORE) (i32.const 2))
-  (call $text (global.get $DCADDR) (i32.const 012) (i32.const 032))
+  (call $text (global.get $DCADDR) (i32.const 016) (i32.const 050))
 
   ;; convert to string, then draw DONKEY_SCORE
   (call $to-decstr (global.get $DONKEY_SCORE) (i32.const 2))
-  (call $text (global.get $DCADDR) (i32.const 123) (i32.const 032))
+  (call $text (global.get $DCADDR) (i32.const 128) (i32.const 050))
+
+  ;; reset DRAW_COLORS for road
+  (call $draw-reset)
 
   ;; draw the road in the center of the screen
   (call $rect (i32.const 50) (i32.const 0) (i32.const 60) (i32.const 160))
 
-  ;; swapon new DRAW_COLORS value
+  ;; swapon new DRAW_COLORS value for roads+stripes
   (call $draw-swap (i32.const 0x2))
+
+  (; 
+  (call $line (i32.const 000) (i32.const 000) (i32.const 159) (i32.const 000))
+  (call $line (i32.const 159) (i32.const 000) (i32.const 159) (i32.const 159))
+  (call $line (i32.const 159) (i32.const 159) (i32.const 000) (i32.const 159))
+  (call $line (i32.const 000) (i32.const 159) (i32.const 000) (i32.const 000))
+  ;)
+
+  ;; draw 'yellow' lines on sides of the road
+  (call $line (i32.const 052) (i32.const 0) (i32.const 052) (i32.const 160))
+  (call $line (i32.const 107) (i32.const 0) (i32.const 107) (i32.const 160))
 
   (loop $stripes
     ;; rect(x=79, y=((rspace + 2) + offset), w=6, h=16)
@@ -227,7 +246,7 @@
                 (i32.add
                   (i32.add (local.get $rspace) (i32.const 2))
                   (global.get $ROAD_OFFSET))
-                (i32.const 3)
+                (i32.const 2)
                 (i32.const 16))
 
     ;; rspace += 20
@@ -274,9 +293,9 @@
       ;; set dx dependent on road side
       (i32.eq (local.get $dr) (i32.const 1))
       if
-        (local.set $dx (i32.const 52))
+        (local.set $dx (i32.const 54))
       else
-        (local.set $dx (i32.const 83))
+        (local.set $dx (i32.const 82))
       end
 
       (call $blit (i32.const 0x19ca)
@@ -330,10 +349,22 @@
 )
 
 (func $update-driver
+  ;; put !( DRIVER_PROG == 0 ) on the stack
+  (i32.xor (i32.const 1) (i32.eqz (global.get $DRIVER_PROG)))
+
   ;; DRIVER_PROG = DRIVER_PROG % 12
   (global.set $DRIVER_PROG (i32.rem_u
                              (global.get $DRIVER_PROG)
                              (i32.const 12)))
+
+  ;; put ( DRIVER_PROG == 0 ) on the stack
+  (i32.eqz (global.get $DRIVER_PROG))
+
+  ;; if ( OLD_DRIVER_PROG != 0 ) && ( NEW_DRIVER_PROG == 0 ) : zero-ddata
+  i32.and
+  if
+    (call $zero-ddata)
+  end
 )
 
 (func $update-donkeys
@@ -370,8 +401,8 @@
       ;; if( donkey-y > 150 ) : remove-from-screen && increase-player-progress
       (i32.ge_u (local.get $dony) (i32.const 140))
       if
-        ;; SPEED_MULT += 0.05
-        (global.set $SPEED_MULT (f32.add (global.get $SPEED_MULT) (f32.const 0.05)))
+        ;; SPEED_MULT += 0.025
+        (global.set $SPEED_MULT (f32.add (global.get $SPEED_MULT) (f32.const 0.025)))
 
         ;; DRIVER_SCORE += 1
         (global.set $DRIVER_SCORE (i32.add (global.get $DRIVER_SCORE) (i32.const 1)))
@@ -392,6 +423,8 @@
       ;; process player collision with a donkey. responsible for resetting the
       ;; game to its starting values.
       (block $collision
+        ;; TODO: Remove
+        br $collision
         ;; if ( donkey_road != driver_road ) : continue
         (i32.ne (local.get $donr) (global.get $DRIVER_ROAD))
         br_if $collision
@@ -625,16 +658,11 @@
   (;
    LGC Algorithm implementation; this implementation uses glibc's constants for
    the a (multiplier), c (increment), and m (modulus) values. This alogrithm
-   leaves bits 30..0 as output, so we need to run the algorithm twice packing
-   the random bits into the correct place each time. The formula formalized:
-
-   seed = ((a * seed) + c) % m
-
-   The algorithm is successively run twice, with the result being stored onto
-   stack before being manipulated.
+   leaves bits 30..0 as output, so we run the algorithm twice packing the
+   random bits onto the stack each time.
   ;)
 
-  ;; (a * seed + c) % m
+  ;; seed = ((a * seed) + c) % m
   global.get $RSEED
   global.get $A-RAND
   i32.mul
@@ -642,12 +670,14 @@
   i32.add
   global.get $M-RAND
   i32.rem_u
+  global.set $RSEED
 
-  ;; populate bits 32..2 of
+  ;; fill in bits 32..2
+  global.get $RSEED
   i32.const 2
   i32.shl
 
-  ;; (a * seed + c) % m
+  ;; seed = ((a * seed) + c) % m
   global.get $RSEED
   global.get $A-RAND
   i32.mul
@@ -655,15 +685,13 @@
   i32.add
   global.get $M-RAND
   i32.rem_u
-
-  ;; extract and store last two bits
-  i32.const 0x3
-  i32.and
-  i32.or
-
-  ;; store new seed value
   global.set $RSEED
+
+  ;; fill in bits 2..0 
   global.get $RSEED
+  i32.const 28
+  i32.shr_u
+  i32.or
 )
 
 (func $ran-int (param $low i32) (param $high i32) (result i32)
