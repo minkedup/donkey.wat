@@ -214,11 +214,16 @@
   ;; overdraw above to account for movement
   (local.set $rspace (i32.const -20))
 
-  ;; set DRAW_COLORS for text
+  ;; set DRAW_COLORS for text+score backgrounds
   (call $draw-swap (i32.const 0x3e))
 
+  ;; draw scoreboard backgrounds
+  (call $rect (i32.const 001) (i32.const 033) (i32.const 45) (i32.const 25)) ;; driver
+  (call $rect (i32.const 112) (i32.const 033) (i32.const 45) (i32.const 25)) ;; donkey
+  (call $rect (i32.const 112) (i32.const 117) (i32.const 45) (i32.const 25)) ;; switch
+
   ;; draw static intructions and scoreboard headers
-  (call $ctext (i32.const 0x19ae) (i32.const 111) (i32.const 120)) ;; switch
+  (call $ctext (i32.const 0x19ae) (i32.const 114) (i32.const 120)) ;; switch
   (call $ctext (i32.const 0x19a0) (i32.const 003) (i32.const 038)) ;; driver
   (call $ctext (i32.const 0x19a7) (i32.const 114) (i32.const 038)) ;; donkey
 
@@ -426,8 +431,6 @@
       ;; process player collision with a donkey. responsible for resetting the
       ;; game to its starting values.
       (block $collision
-        ;; TODO: Remove
-        br $collision
         ;; if ( donkey_road != driver_road ) : continue
         (i32.ne (local.get $donr) (global.get $DRIVER_ROAD))
         br_if $collision
@@ -487,7 +490,7 @@
   )
 )
 
-;; TODO: Figure out why this works...
+;; TODO: Figure out why this works and the true bounds of DONKEY_DATA
 (func $zero-ddata
   (local $addr i32)
 
